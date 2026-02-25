@@ -101,20 +101,20 @@ def classify_condition(
 
     if not available_loads:
         # Only recovery available
-        if recovery >= 75:
+        if recovery >= 80:
             return "Aligned"
-        elif recovery >= 50:
+        elif recovery >= 60:
             return "Balanced"
         else:
             return "Strained"
 
     load = sum(available_loads) / len(available_loads)
 
-    if recovery < 40:
+    if recovery < 60:
         return "Strained"
-    elif recovery >= 70 and load <= 50:
+    elif recovery >= 80 and load <= 50:
         return "Aligned"
-    elif load >= 70 and recovery < 65:
+    elif load >= 70 and recovery < 75:
         return "Overloaded"
     else:
         return "Balanced"
