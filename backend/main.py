@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.database import Base, engine
-from backend.routers import checkin, gcal_oauth, oura_oauth, scores, suggestions, upload
+from backend.routers import checkin, gcal_oauth, oura_oauth, scores, suggestions, upload, lamp
 
 # Auto-create all tables on startup
 Base.metadata.create_all(bind=engine)
@@ -27,7 +27,7 @@ app.include_router(scores.router, prefix="/scores", tags=["scores"])
 app.include_router(suggestions.router, prefix="/suggestions", tags=["suggestions"])
 app.include_router(oura_oauth.router, prefix="/oura", tags=["oura"])
 app.include_router(gcal_oauth.router, prefix="/calendar", tags=["calendar"])
-
+app.include_router(lamp.router, prefix="/lamp", tags=["lamp"])
 
 @app.get("/health", tags=["meta"])
 def health():
