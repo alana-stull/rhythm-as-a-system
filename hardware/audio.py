@@ -11,4 +11,8 @@ class AudioController:
             print(f"[audio] Playing track {track} → {state}")
         else:
             # Play MP3 directly on Pi
-            subprocess.Popen(["mpg123", f"audio/{state}.mp3"])
+            subprocess.Popen(
+                ["mpg123", "-a", "plughw:2,0", f"audio/{state}.mp3"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )

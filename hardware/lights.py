@@ -7,25 +7,21 @@
 import time
 import threading
 import math
-from config import MOCK, LED_PIN, LED_COUNT, LED_BRIGHTNESS, LED_COLOR, PULSE_SPEED
+from config import MOCK, LED_BRIGHTNESS, LED_COLOR, PULSE_SPEED
 
 if not MOCK:
-    import board
-    import neopixel
+    from adafruit_crickit import crickit
+    crickit.init_neopixel(24)
 
 class LightController:
     def __init__(self):
         self._state    = "balanced"
-        self._running  = False
-        self._thread   = None
         self._stop_evt = threading.Event()
+        self._thread   = None
 
         if not MOCK:
-            self._pixels = neopixel.NeoPixel(
-                board.D18, LED_COUNT,
-                brightness=LED_BRIGHTNESS,
-                auto_write=False
-            )
+            self._pixels = crickit.neopixel
+
 
     def set_state(self, state: str):
         """Update the pulse state. Restarts the pulse loop."""
@@ -52,16 +48,15 @@ class LightController:
         while not self._stop_evt.is_set():
             t = time.time()
             # Sine wave: 0.2 → 1.0 brightness range (never fully off)
-            brightness = 0.2 + 0.8 * (0.5 + 0.5 * math.sin(2 * math.pi * t / period))
+            brightness = 0.1 + 0.9 * (0.5 + 0.5 * math.sin(2 * math.pi * t / period))
             scaled = (int(r * brightness), int(g * brightness), int(b * brightness))
 
             if MOCK:
                 # Show a simple bar in terminal
                 bar = "█" * int(brightness * 20)
-                print(f"\r[lights] {self._state:12} {bar:<20} {brightness:.2f}", end="", flush=True)
+                print(f"\r[lights] {self._state:24} {bar:<20} {brightness:.2f}", end="", flush=True)
             else:
                 self._pixels.fill(scaled)
-                self._pixels.show()
 
             time.sleep(step)
 
@@ -69,7 +64,6 @@ class LightController:
         self._stop_evt.set()
         if not MOCK:
             self._pixels.fill((0, 0, 0))
-            self._pixels.show()
         else:
             print("\n[lights] Off")
 
