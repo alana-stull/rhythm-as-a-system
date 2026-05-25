@@ -61,44 +61,23 @@ export default function PhoneScreen({
       onBack={back}
     >
       {!sent ? (
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <TouchableOpacity
-            style={{
-              width: 72,
-              height: 56,
-              borderRadius: 12,
-              backgroundColor: "#FFFFFF",
-              borderWidth: 0.5,
-              borderColor: "rgba(0,0,0,0.1)",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              flexDirection: "row",
-            }}
-          >
-            <Text style={{ fontSize: 16 }}>🇺🇸</Text>
-            <Text style={{ fontSize: 18, fontWeight: "500", color: "#1A1A1A" }}>
-              +1
-            </Text>
-          </TouchableOpacity>
-          <TextInput
-            style={{
-              flex: 1,
-              height: 56,
-              backgroundColor: "#FFFFFF",
-              borderRadius: 12,
-              paddingHorizontal: 16,
-              borderWidth: 0.5,
-              borderColor: "rgba(0,0,0,0.1)",
-              fontSize: 16,
-            }}
-            keyboardType="phone-pad"
-            placeholder="(555) 123-4567"
-            value={phone}
-            onChangeText={setPhone}
-            placeholderTextColor="#C0C0C0"
-          />
-        </View>
+        <TextInput
+          style={{
+            width: "100%",
+            height: 56,
+            backgroundColor: "#FFFFFF",
+            borderRadius: 12,
+            paddingHorizontal: 16,
+            borderWidth: 0.5,
+            borderColor: "rgba(0,0,0,0.1)",
+            fontSize: 16,
+          }}
+          keyboardType="phone-pad"
+          placeholder="(555) 123-4567"
+          value={phone}
+          onChangeText={setPhone}
+          placeholderTextColor="#C0C0C0"
+        />
       ) : (
         <>
           <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>

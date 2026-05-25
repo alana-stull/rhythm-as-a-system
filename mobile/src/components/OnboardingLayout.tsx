@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
   progressBarFilled: {
     height: "100%",
     borderRadius: 7,
-    backgroundColor: "#5B8DE8",
+    backgroundColor: "#C27E3A",
     overflow: "hidden",
   },
   contentContainer: {
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   continueBtnActive: {
-    backgroundColor: "#5B8DE8",
+    backgroundColor: "#C27E3A",
   },
   continueBtnDisabled: {
     backgroundColor: "#E3E4E6",
