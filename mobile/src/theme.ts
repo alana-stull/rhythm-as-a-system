@@ -1,5 +1,11 @@
 import { Platform } from "react-native";
 
+// ── Font families ──────────────────────────────────────────────────────────
+export const fontFamily = {
+  heading: "Tiempos-Semibold",  // must match exact useFonts key
+  body: Platform.select({ ios: "System", android: "sans-serif" }),
+} as const;
+
 // ── Colors ─────────────────────────────────────────────────────────────────
 export const colors = {
   bg: {

@@ -1,7 +1,10 @@
+import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import React, { useState } from "react";
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { AuthProvider, useAuth } from "./src/auth/AuthContext";
+import OnboardingNavigator from "./src/screens/onboarding";
 import { BreakScreen } from "./src/screens/BreakScreen";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { InsightsScreen } from "./src/screens/InsightsScreen";
@@ -158,12 +161,43 @@ function AppLayout() {
   );
 }
 
-// ── Root (provides SafeArea context) ─────────────────────────────────────────
-export default function App() {
+// ── Auth-gated root (must be inside AuthProvider) ─────────────────────────────
+function RootLayout() {
+  const { user, loading, onboardingComplete } = useAuth();
+
+  // Hold the splash while Firebase resolves auth state
+  if (loading) return <View style={{ flex: 1, backgroundColor: "#F2F0EB" }} />;
+
+  // Not signed in or onboarding incomplete → placeholder until screens are built
+  if (!user || !onboardingComplete) {
+    return (
+      <SafeAreaProvider>
+        <OnboardingNavigator />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <AppLayout />
     </SafeAreaProvider>
+  );
+}
+
+// ── Root (loads fonts, provides auth) ────────────────────────────────────────
+export default function App() {
+  const [fontsLoaded] = useFonts({
+    "Tiempos-Semibold": require("./assets/fonts/TestTiemposText-Semibold-BF66457a4fed201.otf"),
+  });
+
+  if (!fontsLoaded) {
+    return <View style={{ flex: 1, backgroundColor: "#F2F0EB" }} />;
+  }
+
+  return (
+    <AuthProvider>
+      <RootLayout />
+    </AuthProvider>
   );
 }
 

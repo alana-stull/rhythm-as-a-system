@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { Suggestion, generateSuggestion, getLatestScores, getLatestSuggestion } from "../api/client";
 import { StateBadge } from "../components/StateBadge";
-import { cardBase, colors, font, radius, space } from "../theme";
+import { cardBase, colors, font, fontFamily, radius, space } from "../theme";
 
 export function BreakScreen() {
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
@@ -147,6 +147,7 @@ const styles = StyleSheet.create({
   },
 
   pageTitle: {
+    fontFamily: fontFamily.heading,
     fontSize: font.size.title,
     fontWeight: font.weight.medium,
     color: colors.text.primary,

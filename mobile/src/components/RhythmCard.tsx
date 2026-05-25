@@ -1,6 +1,6 @@
 import React from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { cardBase, colors, font, space } from "../theme";
+import { cardBase, colors, font, fontFamily, space } from "../theme";
 import { StateBadge } from "./StateBadge";
 
 interface RhythmCardProps {
@@ -89,6 +89,7 @@ const styles = StyleSheet.create({
   },
 
   sectionLabel: {
+    fontFamily: fontFamily.heading,
     fontSize: font.size.micro,
     fontWeight: font.weight.semibold,
     color: colors.text.muted,

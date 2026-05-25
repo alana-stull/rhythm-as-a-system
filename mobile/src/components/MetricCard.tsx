@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { cardBase, colors, font, space } from "../theme";
+import { cardBase, colors, font, fontFamily, space } from "../theme";
 
 type Metric = "recovery" | "exposure";
 
@@ -69,6 +69,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
+    fontFamily: fontFamily.heading,
     fontSize: font.size.micro,
     fontWeight: font.weight.semibold,
     color: colors.text.muted,

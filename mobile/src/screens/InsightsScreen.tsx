@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { DailyScore, getScoreHistory } from "../api/client";
-import { cardBase, colors, font, radius, space } from "../theme";
+import { cardBase, colors, font, fontFamily, radius, space } from "../theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Window = 7 | 30 | 90;
@@ -380,6 +380,7 @@ const styles = StyleSheet.create({
   content: { padding: space[12], paddingBottom: space[24] },
 
   pageTitle: {
+    fontFamily: fontFamily.heading,
     fontSize: font.size.title,
     fontWeight: font.weight.medium,
     color: colors.text.primary,
