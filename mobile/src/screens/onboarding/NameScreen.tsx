@@ -1,22 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Animated, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useState } from "react";
+import { TextInput } from "react-native";
 import { doc, setDoc } from "firebase/firestore";
 import { useAuth } from "../../auth/AuthContext";
 import { db } from "../../firebase";
-import { onboardingStyles as styles } from "../../theme/onboarding";
+import { OnboardingLayout } from "../../components/OnboardingLayout";
 
-export default function NameScreen({ next, back, currentStep, totalSteps }: { next: () => void; back: () => void; currentStep: number; totalSteps: number }) {
+export default function NameScreen({
+  next,
+  back,
+  currentStep,
+  totalSteps
+}: {
+  next: () => void;
+  back: () => void;
+  currentStep: number;
+  totalSteps: number;
+}) {
   const [name, setName] = useState("");
   const { user } = useAuth() as any;
-  const progress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const toValue = Math.max(0, Math.min(1, currentStep / totalSteps));
-    Animated.timing(progress, { toValue, duration: 300, useNativeDriver: false }).start();
-  }, [currentStep, totalSteps]);
-
-  const progressWidth = progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
 
   const handleContinue = async () => {
     if (user?.uid) {
@@ -25,42 +26,34 @@ export default function NameScreen({ next, back, currentStep, totalSteps }: { ne
     next();
   };
 
+  const progress = (currentStep / totalSteps) * 100;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={back} style={styles.backButton}>
-          <Text style={styles.backText}>←</Text>
-        </TouchableOpacity>
-        <View style={styles.progressTrack}>
-          <Animated.View style={{ height: 8, backgroundColor: "#1A1A1A", borderRadius: 4, width: progressWidth }} />
-        </View>
-      </View>
-
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <Text style={styles.heading}>What should we call you?</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="First name"
-            autoFocus
-            value={name}
-            onChangeText={setName}
-            placeholderTextColor="#C0C0C0"
-          />
-        </View>
-
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, !name && styles.primaryBtnDisabled]}
-            onPress={handleContinue}
-            disabled={!name}
-          >
-            <Text style={[styles.primaryBtnText, !name && styles.primaryBtnTextDisabled]}>
-              Continue
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </SafeAreaView>
+    <OnboardingLayout
+      progress={progress}
+      showBackArrow
+      question="What should we call you?"
+      continueDisabled={!name}
+      onContinue={handleContinue}
+      onBack={back}
+    >
+      <TextInput
+        style={{
+          width: "100%",
+          height: 56,
+          backgroundColor: "#FFFFFF",
+          borderRadius: 12,
+          paddingHorizontal: 16,
+          borderWidth: 0.5,
+          borderColor: "rgba(0,0,0,0.1)",
+          fontSize: 16,
+        }}
+        placeholder="First name"
+        autoFocus
+        value={name}
+        onChangeText={setName}
+        placeholderTextColor="#C0C0C0"
+      />
+    </OnboardingLayout>
   );
 }
