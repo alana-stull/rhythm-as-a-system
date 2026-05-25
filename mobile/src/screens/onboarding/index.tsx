@@ -22,6 +22,15 @@ export default function OnboardingNavigator() {
   const next = () => setScreenIndex((s) => Math.min(8, s + 1));
   const back = () => setScreenIndex((s) => Math.max(1, s - 1));
 
+  const handleTrackerSelection = (tracker: string | null) => {
+    setSelectedTracker(tracker);
+    if (tracker === "Oura") {
+      setScreenIndex(6);
+    } else {
+      setScreenIndex(7);
+    }
+  };
+
   return (
     <SafeAreaProvider>
       {screenIndex === 1 && <SplashScreen next={next} />}
@@ -34,20 +43,13 @@ export default function OnboardingNavigator() {
       )}
       {screenIndex === 5 && (
         <TrackerScreen
-          next={(tracker) => {
-            setSelectedTracker(tracker);
-            if (tracker === "Oura") {
-              setScreenIndex(6);
-            } else {
-              setScreenIndex(7);
-            }
-          }}
+          next={handleTrackerSelection}
           back={back}
           currentStep={currentStep}
           totalSteps={totalSteps}
         />
       )}
-      {screenIndex === 6 && selectedTracker === "Oura" && (
+      {screenIndex === 6 && (
         <OuraSignInScreen
           next={() => setScreenIndex(7)}
           back={() => setScreenIndex(5)}
