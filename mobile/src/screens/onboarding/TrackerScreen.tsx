@@ -9,9 +9,9 @@ export default function TrackerScreen({
   next,
   back,
   currentStep,
-  totalSteps
+  totalSteps,
 }: {
-  next: () => void;
+  next: (tracker: string | null) => void;
   back: () => void;
   currentStep: number;
   totalSteps: number;
@@ -39,7 +39,7 @@ export default function TrackerScreen({
         { merge: true }
       );
     }
-    next();
+    next(selected);
   };
 
   const expandedHeight = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 72] });

@@ -5,11 +5,13 @@ import WelcomeScreen from "./WelcomeScreen";
 import PhoneScreen from "./PhoneScreen";
 import NameScreen from "./NameScreen";
 import TrackerScreen from "./TrackerScreen";
+import OuraSignInScreen from "./OuraSignInScreen";
 import ToneScreen from "./ToneScreen";
 import DoneScreen from "./DoneScreen";
 
 export default function OnboardingNavigator() {
   const [screenIndex, setScreenIndex] = useState(1);
+  const [selectedTracker, setSelectedTracker] = useState<string | null>(null);
 
   const totalSteps = 5;
   const currentStep = useMemo(() => {
@@ -17,18 +19,51 @@ export default function OnboardingNavigator() {
     return Math.min(totalSteps, screenIndex - 2);
   }, [screenIndex]);
 
-  const next = () => setScreenIndex((s) => Math.min(7, s + 1));
+  const next = () => setScreenIndex((s) => Math.min(8, s + 1));
   const back = () => setScreenIndex((s) => Math.max(1, s - 1));
 
   return (
     <SafeAreaProvider>
       {screenIndex === 1 && <SplashScreen next={next} />}
       {screenIndex === 2 && <WelcomeScreen next={next} />}
-      {screenIndex === 3 && <PhoneScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />}
-      {screenIndex === 4 && <NameScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />}
-      {screenIndex === 5 && <TrackerScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />}
-      {screenIndex === 6 && <ToneScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />}
-      {screenIndex === 7 && <DoneScreen />}
+      {screenIndex === 3 && (
+        <PhoneScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />
+      )}
+      {screenIndex === 4 && (
+        <NameScreen next={next} back={back} currentStep={currentStep} totalSteps={totalSteps} />
+      )}
+      {screenIndex === 5 && (
+        <TrackerScreen
+          next={(tracker) => {
+            setSelectedTracker(tracker);
+            if (tracker === "Oura") {
+              setScreenIndex(6);
+            } else {
+              setScreenIndex(7);
+            }
+          }}
+          back={back}
+          currentStep={currentStep}
+          totalSteps={totalSteps}
+        />
+      )}
+      {screenIndex === 6 && selectedTracker === "Oura" && (
+        <OuraSignInScreen
+          next={() => setScreenIndex(7)}
+          back={() => setScreenIndex(5)}
+          currentStep={currentStep}
+          totalSteps={totalSteps}
+        />
+      )}
+      {screenIndex === 7 && (
+        <ToneScreen
+          next={next}
+          back={() => setScreenIndex(selectedTracker === "Oura" ? 6 : 5)}
+          currentStep={currentStep}
+          totalSteps={totalSteps}
+        />
+      )}
+      {screenIndex === 8 && <DoneScreen />}
     </SafeAreaProvider>
   );
 }
