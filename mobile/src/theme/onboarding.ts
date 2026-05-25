@@ -10,54 +10,53 @@ export const onboardingStyles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: "space-between",
-    paddingHorizontal: 24,
   },
 
   header: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 16,
+    paddingVertical: 12,
     paddingHorizontal: 24,
   },
 
   backButton: {
     padding: 4,
-    minWidth: 40,
+    minWidth: 32,
     justifyContent: "center",
   },
 
   backText: {
     color: "#6B6B6B",
-    fontSize: 24,
+    fontSize: 20,
   },
 
   progressTrack: {
     flex: 1,
-    height: 8,
+    height: 6,
     backgroundColor: "#E8E8E8",
-    borderRadius: 4,
+    borderRadius: 3,
   },
 
   content: {
     flex: 1,
     justifyContent: "flex-start",
     paddingHorizontal: 24,
-    paddingTop: 32,
+    paddingTop: 40,
   },
 
   heading: {
     fontFamily: fontFamily.heading,
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: "600",
     color: colors.text.primary,
     letterSpacing: -0.5,
   },
 
   body: {
-    marginTop: 16,
-    fontSize: 14,
-    color: "#8B8B8B",
+    marginTop: 12,
+    fontSize: 15,
+    color: "#999999",
     lineHeight: 22,
   },
 
