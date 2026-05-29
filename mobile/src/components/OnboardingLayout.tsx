@@ -5,11 +5,13 @@ import {
   StyleSheet,
   Pressable,
   Animated,
+  TouchableOpacity,
   Keyboard,
   TouchableWithoutFeedback,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, fontFamily, space, radius } from "../theme";
+import { usePressScale } from "../hooks/usePressScale";
 
 interface OnboardingLayoutProps {
   children: React.ReactNode;
@@ -35,6 +37,8 @@ export function OnboardingLayout({
   onBack,
 }: OnboardingLayoutProps) {
   const animatedProgress = useRef(new Animated.Value(_lastProgress)).current;
+  const { scale: continueScale, pressIn: continuePressIn, pressOut: continuePressOut } = usePressScale();
+  const { scale: backScale, pressIn: backPressIn, pressOut: backPressOut } = usePressScale(0.9);
 
   useEffect(() => {
     Animated.timing(animatedProgress, {
@@ -57,15 +61,15 @@ export function OnboardingLayout({
           {/* Top row: back arrow + progress bar */}
           <View style={styles.topRow}>
             {showBackArrow ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.backBtn,
-                  pressed && { opacity: 0.7 },
-                ]}
+              <TouchableOpacity
+                style={[styles.backBtn, { transform: [{ scale: backScale }] }] as any}
+                activeOpacity={1}
+                onPressIn={backPressIn}
+                onPressOut={backPressOut}
                 onPress={onBack}
               >
                 <Text style={styles.backArrow}>←</Text>
-              </Pressable>
+              </TouchableOpacity>
             ) : (
               <View style={styles.backBtn} />
             )}
@@ -91,27 +95,27 @@ export function OnboardingLayout({
 
           {/* Continue button */}
           {onContinue && (
-            <Pressable
+            <TouchableOpacity
               style={[
                 styles.continueBtn,
-                continueDisabled
-                  ? styles.continueBtnDisabled
-                  : styles.continueBtnActive,
-              ]}
+                continueDisabled ? styles.continueBtnDisabled : styles.continueBtnActive,
+                { transform: [{ scale: continueScale }] },
+              ] as any}
+              activeOpacity={1}
+              onPressIn={continuePressIn}
+              onPressOut={continuePressOut}
               onPress={onContinue}
               disabled={continueDisabled}
             >
               <Text
                 style={[
                   styles.continueBtnText,
-                  continueDisabled
-                    ? styles.continueBtnTextDisabled
-                    : styles.continueBtnTextActive,
+                  continueDisabled ? styles.continueBtnTextDisabled : styles.continueBtnTextActive,
                 ]}
               >
                 Continue
               </Text>
-            </Pressable>
+            </TouchableOpacity>
           )}
         </SafeAreaView>
       </View>

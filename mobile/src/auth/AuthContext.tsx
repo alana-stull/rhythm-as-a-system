@@ -1,5 +1,5 @@
 import * as WebBrowser from "expo-web-browser";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import {
   ConfirmationResult,
   onAuthStateChanged,
@@ -30,6 +30,7 @@ interface AuthState {
   signInWithPhone: (phone: string) => Promise<void>;
   confirmOTP: (code: string) => Promise<void>;
   signOut: () => Promise<void>;
+  completeOnboarding: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -128,9 +129,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fbSignOut(auth);
   }
 
+  async function completeOnboarding() {
+    if (user) {
+      await setDoc(doc(db, "users", user.uid), { onboardingComplete: true }, { merge: true });
+    }
+    setOnboardingComplete(true);
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, userName, loading, onboardingComplete, signInWithGoogle, signInWithPhone, confirmOTP, signOut }}
+      value={{ user, userName, loading, onboardingComplete, signInWithGoogle, signInWithPhone, confirmOTP, signOut, completeOnboarding }}
     >
       {children}
     </AuthContext.Provider>

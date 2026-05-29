@@ -33,7 +33,7 @@ export default function NameScreen({
       progress={progress}
       showBackArrow
       question="What should we call you?"
-      subtitle="We'll personalize your experience"
+      subtitle="Just your first name is fine!"
       continueDisabled={!name}
       onContinue={handleContinue}
       onBack={back}

@@ -1,34 +1,28 @@
 import React, { useMemo, useState } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import SplashScreen from "./SplashScreen";
 import WelcomeScreen from "./WelcomeScreen";
 import PhoneScreen from "./PhoneScreen";
 import NameScreen from "./NameScreen";
 import TrackerScreen from "./TrackerScreen";
-import OuraSignInScreen from "./OuraSignInScreen";
 import ToneScreen from "./ToneScreen";
 import DoneScreen from "./DoneScreen";
 
 export default function OnboardingNavigator() {
-  const [screenIndex, setScreenIndex] = useState(1);
+  const [screenIndex, setScreenIndex] = useState(2);
   const [selectedTracker, setSelectedTracker] = useState<string | null>(null);
 
-  const totalSteps = 5;
+  const totalSteps = 4;
   const currentStep = useMemo(() => {
     if (screenIndex < 3) return 0;
     return Math.min(totalSteps, screenIndex - 2);
   }, [screenIndex]);
 
-  const next = () => setScreenIndex((s) => Math.min(8, s + 1));
-  const back = () => setScreenIndex((s) => Math.max(1, s - 1));
+  const next = () => setScreenIndex((s) => Math.min(7, s + 1));
+  const back = () => setScreenIndex((s) => Math.max(2, s - 1));
 
   const handleTrackerSelection = (tracker: string | null) => {
     setSelectedTracker(tracker);
-    if (tracker === "Oura") {
-      setScreenIndex(6);
-    } else {
-      setScreenIndex(7);
-    }
+    setScreenIndex(6);
   };
 
   return (
@@ -50,22 +44,14 @@ export default function OnboardingNavigator() {
         />
       )}
       {screenIndex === 6 && (
-        <OuraSignInScreen
-          next={() => setScreenIndex(7)}
+        <ToneScreen
+          next={next}
           back={() => setScreenIndex(5)}
           currentStep={currentStep}
           totalSteps={totalSteps}
         />
       )}
-      {screenIndex === 7 && (
-        <ToneScreen
-          next={next}
-          back={() => setScreenIndex(selectedTracker === "Oura" ? 6 : 5)}
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-        />
-      )}
-      {screenIndex === 8 && <DoneScreen />}
+      {screenIndex === 7 && <DoneScreen />}
     </SafeAreaProvider>
   );
 }

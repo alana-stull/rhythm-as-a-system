@@ -5,6 +5,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "./src/auth/AuthContext";
 import OnboardingNavigator from "./src/screens/onboarding";
+import SplashScreen from "./src/screens/onboarding/SplashScreen";
 import { BreakScreen } from "./src/screens/BreakScreen";
 import { HistoryScreen } from "./src/screens/HistoryScreen";
 import { InsightsScreen } from "./src/screens/InsightsScreen";
@@ -163,13 +164,20 @@ function AppLayout() {
 
 // ── Auth-gated root (must be inside AuthProvider) ─────────────────────────────
 function RootLayout() {
-  const { user, loading, onboardingComplete } = useAuth();
+  const { loading, onboardingComplete } = useAuth();
+  const [splashDone, setSplashDone] = useState(false);
 
-  // Hold the splash while Firebase resolves auth state
+  if (!splashDone) {
+    return (
+      <SafeAreaProvider>
+        <SplashScreen next={() => setSplashDone(true)} />
+      </SafeAreaProvider>
+    );
+  }
+
   if (loading) return <View style={{ flex: 1, backgroundColor: "#F2F0EB" }} />;
 
-  // Not signed in or onboarding incomplete → placeholder until screens are built
-  if (!user || !onboardingComplete) {
+  if (!onboardingComplete) {
     return (
       <SafeAreaProvider>
         <OnboardingNavigator />
