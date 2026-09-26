@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.venv*/
 venv/
 env/
 *.egg-info/
@@ -12,6 +13,8 @@ build/
 
 # Environment
 .env
+.env.*
+!.env.example
 *.env.local
 
 # Databases
@@ -44,3 +47,10 @@ release/
 # Logs
 *.log
 npm-debug.log*
+
+# Supabase local stack
+supabase/.temp/
+supabase/.branches/
+
+# pytest
+.pytest_cache/
