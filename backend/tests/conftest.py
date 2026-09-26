@@ -8,7 +8,7 @@ import os
 # Env vars take priority over .env files in pydantic-settings, so these
 # must be set before anything imports backend.config.
 os.environ["DATABASE_URL"] = "sqlite://"
-for _key in ("GOOGLE_API_KEY", "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "GCAL_CLIENT_ID", "GCAL_CLIENT_SECRET"):
+for _key in ("OPENAI_API_KEY", "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "GCAL_CLIENT_ID", "GCAL_CLIENT_SECRET"):
     os.environ[_key] = ""
 
 import pytest

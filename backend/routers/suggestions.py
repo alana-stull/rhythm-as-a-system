@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import DailyScore, Suggestion
 from backend.schemas import SuggestionResponse
-from backend.services.openai_service import generate_suggestion
+from backend.services.interpretation import generate_suggestion
 
 router = APIRouter()
 

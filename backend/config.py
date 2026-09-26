@@ -12,7 +12,8 @@ _ENV_FILES = (_BACKEND_DIR.parent / ".env", _BACKEND_DIR / ".env")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILES, extra="ignore")
 
-    google_api_key: str = ""
+    openai_api_key: str = ""
+    interpretation_model: str = "gpt-4.1-mini"
     database_url: str = "sqlite:///./rhythm.db"
     cors_origins: list[str] = [
         "http://localhost:5173",
