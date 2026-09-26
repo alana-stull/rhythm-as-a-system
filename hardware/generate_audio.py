@@ -12,8 +12,7 @@ import requests
 # Output: hardware/audio/aligned.mp3, balanced.mp3, etc.
 # ─────────────────────────────────────────────
 
-API_KEY = "sk_41255000442848352ed00736b6517390b91447cfde26850a"
-print(f"API_KEY loaded: {API_KEY}")
+API_KEY = os.environ["ELEVENLABS_API_KEY"]
 VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # "Rachel" — free default voice
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "audio")
 
