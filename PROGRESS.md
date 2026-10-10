@@ -21,7 +21,7 @@ The technical foundation is not the product MVP. Every product capability below 
 | M0 — cleanup and guardrails | Done |
 | F0 — backups and prerequisites | Local work done; remaining items need approval or your action (below) |
 | F1 — capacity engine v2, isolated | Done: `backend/engine/`, 162 tests, not wired to any endpoint or screen |
-| F2 — identity and persistence | Stage 1 done locally (schema, RLS, JWT verification, `/me`, data deletion, migration dry run). Hosted project not touched. |
+| F2 — identity and persistence | Stage 1 done and verified on the hosted project (2026-10-10): migration `0001` applied; structural and behavioral (19/19) verification passed. Stage 2 not started. |
 
 Run tests: `.venv/bin/python -m pytest` (Postgres tests need `supabase start`; they skip otherwise). Setup and access rules: `docs/supabase-foundation.md`.
 
@@ -38,11 +38,11 @@ Needs your approval or action:
 3. An independent off-disk copy of `~/rhythm-archive/` (encrypted volume or encrypted external drive).
 4. Rotate secrets that were in git history: Google OAuth client secret, Oura client secret, ElevenLabs key; delete the old Gemini key (still in root `.env` as `GOOGLE_API_KEY`).
 5. After rotation: delete `~/rhythm-archive/backend.env.before-secrets` and the legacy root `.env` (both hold old plaintext secrets).
-6. Prerequisites for F2: Docker Desktop, Apple Developer Program membership, Supabase dev project (check JWT mode: signing keys vs legacy secret), fill `backend/.env`. Backend dependencies must be declared (`requirements.txt`) before any hosting.
+6. Prerequisites still open: Apple Developer Program membership (Sign in with Apple, EAS builds). Done: Docker Desktop, existing Supabase project audited, `backend/.env` filled, dependencies declared.
 
 ## F2 — identity and persistence
 
-Stage 1 (2026-10-10), local Supabase only:
+Stage 1 (2026-10-10) — complete; built and tested on local Supabase, then applied and verified on the hosted project:
 - `backend/requirements.txt` adds psycopg, Alembic, PyJWT (existing pins unchanged).
 - Alembic `0001` (`backend/migrations/`): profiles, areas, goals, tasks (Top 3 via `priority_rank`), recurring items (habits, routines, commitments; effects default to `unknown`), practice logs, plan blocks, check-ins, connections, health_daily, external events, daily assessments, interpretations. RLS on every table, nothing for `anon`, explicit per-table client privileges, composite same-owner foreign keys. Refuses to overwrite existing objects; refuses non-local hosts without `-x allow_remote=true`.
 - `backend/auth.py`: Supabase JWT verification (JWKS signing keys; legacy HS256 only if configured), anonymous and non-`authenticated` tokens rejected.
@@ -52,7 +52,13 @@ Stage 1 (2026-10-10), local Supabase only:
 - `supabase/`: local config (email 6-digit code, Apple prepared but off, no anonymous sign-ins), sign-in code template, read-only audit query for the hosted project.
 - `backend/scripts/plan_sqlite_migration.py`: read-only dry run (108 Oura days, 5 legacy check-ins; 5 sleep-score-only days skipped).
 
-Hosted Rhythm project (`tiljxtrvtyaycdorccvs`): read-only checks returned 502/521 (likely paused). Nothing was changed there.
+Hosted Rhythm project (`tiljxtrvtyaycdorccvs`, Postgres 17.6):
+- 25-check catalog-only audit: 24 CLEAR, 1 REVIEW (#13: `postgres` has TRIGGER on `auth.users` but isn't owner).
+- Read-only preflight (`backend/scripts/preflight_hosted.py`, read-only session and 15s timeout verified first): 13/13 PASS.
+- Migration runner made fully atomic (schema, version table and migrations in one transaction); rollback proven by `test_migration_rollback.py` (missing TRIGGER or REFERENCES leaves nothing behind).
+- Committed as `b3f1e6e`, then `0001` applied with explicit approval. Read-only inventory: version `0001`, 13 tables with RLS, 33 policies, no anon privileges, `connections` without client access, both `rhythm_private` functions, `rhythm_on_auth_user_created` enabled, 8 `updated_at` triggers, 0 rows.
+- `supabase/verify_after_0001.sql` passed; `supabase/verify_behavior_after_0001.sql`: RHYTHM VERIFY PASSED, 19 of 19 checks, rolled back.
+- No historical data migrated; hosted Auth settings (email template, redirect URLs, providers) not changed yet.
 
 ## F1 — capacity engine v2 (done, isolated)
 
