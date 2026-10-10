@@ -14,7 +14,19 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     interpretation_model: str = "gpt-4.1-mini"
-    database_url: str = "sqlite:///./rhythm.db"
+
+    # Supabase Postgres for the user-owned schema (Alembic, backend/migrations).
+    # postgresql+psycopg://... ; empty means not configured (those endpoints return 503).
+    database_url: str = ""
+    # The pre-Supabase single-user SQLite database used by the legacy endpoints
+    # until F3/F4 replace them. Never migrated in place.
+    legacy_database_url: str = "sqlite:///./rhythm.db"
+
+    # Supabase Auth. JWTs are verified against {supabase_url}/auth/v1 JWKS
+    # (signing keys). supabase_jwt_secret is only for projects still on the
+    # legacy shared HS256 secret; leave empty otherwise.
+    supabase_url: str = ""
+    supabase_jwt_secret: str = ""
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",

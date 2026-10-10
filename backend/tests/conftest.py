@@ -7,8 +7,14 @@ import os
 
 # Env vars take priority over .env files in pydantic-settings, so these
 # must be set before anything imports backend.config.
-os.environ["DATABASE_URL"] = "sqlite://"
-for _key in ("OPENAI_API_KEY", "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "GCAL_CLIENT_ID", "GCAL_CLIENT_SECRET"):
+os.environ["LEGACY_DATABASE_URL"] = "sqlite://"
+# The user-owned schema is only ever tested against the local Supabase stack.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgres"
+)
+os.environ["SUPABASE_URL"] = "http://127.0.0.1:54321"
+for _key in ("OPENAI_API_KEY", "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "GCAL_CLIENT_ID", "GCAL_CLIENT_SECRET",
+             "SUPABASE_JWT_SECRET"):
     os.environ[_key] = ""
 
 import pytest

@@ -10,7 +10,7 @@ The technical foundation is not the product MVP. Every product capability below 
 | Tier | Contents |
 |---|---|
 | **Technical foundation** | F0 backups and prerequisites · F1 capacity engine v2 (pure) · F2 identity and persistence (Supabase Auth: Apple + email, Postgres, `/me`, deletion) · F3 inputs and one pipeline (tasks, check-ins, health, calendar intake, `recompute_day`, `GET /today`, OpenAI with fallback) · F4 SQLite migration · F5 mobile auth and headless data layer, Firebase removed · F6 integration adapters (Oura per user, Google Calendar dormant, EventKit intake) |
-| **Functional product MVP** | Onboarding (account or on-device preview), Today, Plan (Day + Week, capacity-aware planning), Tasks, Insights, You, check-ins, EventKit, Oura, HealthKit, goals, habits, routines, commitments, connected web dashboard. Scope split between MVP and pre-public is still to be decided. |
+| **Functional product MVP** | Onboarding (account or on-device preview), Today, Plan (Day + Week, capacity-aware planning), Tasks, Insights, You, check-ins, goals, habits, routines, commitments, EventKit, Oura, HealthKit, connected web dashboard (existing dashboard kept as reference; UI replaced incrementally). |
 | **TestFlight** | Hosted FastAPI (staging + prod), Supabase Pro, custom SMTP, account deletion incl. Apple token revocation, privacy policy and App Privacy labels, error reporting, rate limits, data export |
 | **Public release** | App Review, terms, data-request process, monitoring, accessibility, web dashboard GA, Google Calendar restored if still wanted |
 
@@ -21,9 +21,9 @@ The technical foundation is not the product MVP. Every product capability below 
 | M0 — cleanup and guardrails | Done |
 | F0 — backups and prerequisites | Local work done; remaining items need approval or your action (below) |
 | F1 — capacity engine v2, isolated | Done: `backend/engine/`, 162 tests, not wired to any endpoint or screen |
-| F2 — identity and persistence | Not started; blocked on setup (below) |
+| F2 — identity and persistence | Stage 1 done locally (schema, RLS, JWT verification, `/me`, data deletion, migration dry run). Hosted project not touched. |
 
-Run tests: `.venv/bin/python -m pytest`
+Run tests: `.venv/bin/python -m pytest` (Postgres tests need `supabase start`; they skip otherwise). Setup and access rules: `docs/supabase-foundation.md`.
 
 ## F0 — backups and prerequisites
 
@@ -39,6 +39,20 @@ Needs your approval or action:
 4. Rotate secrets that were in git history: Google OAuth client secret, Oura client secret, ElevenLabs key; delete the old Gemini key (still in root `.env` as `GOOGLE_API_KEY`).
 5. After rotation: delete `~/rhythm-archive/backend.env.before-secrets` and the legacy root `.env` (both hold old plaintext secrets).
 6. Prerequisites for F2: Docker Desktop, Apple Developer Program membership, Supabase dev project (check JWT mode: signing keys vs legacy secret), fill `backend/.env`. Backend dependencies must be declared (`requirements.txt`) before any hosting.
+
+## F2 — identity and persistence
+
+Stage 1 (2026-10-10), local Supabase only:
+- `backend/requirements.txt` adds psycopg, Alembic, PyJWT (existing pins unchanged).
+- Alembic `0001` (`backend/migrations/`): profiles, areas, goals, tasks (Top 3 via `priority_rank`), recurring items (habits, routines, commitments; effects default to `unknown`), practice logs, plan blocks, check-ins, connections, health_daily, external events, daily assessments, interpretations. RLS on every table, nothing for `anon`, explicit per-table client privileges, composite same-owner foreign keys. Refuses to overwrite existing objects; refuses non-local hosts without `-x allow_remote=true`.
+- `backend/auth.py`: Supabase JWT verification (JWKS signing keys; legacy HS256 only if configured), anonymous and non-`authenticated` tokens rejected.
+- `backend/db/`: explicit user filters plus `user_scope()` (RLS applies to backend queries too); `delete_user_data` (data only, not account deletion).
+- `GET/PATCH /me`, `DELETE /me/data?confirm=true`.
+- `LEGACY_DATABASE_URL` (SQLite, legacy endpoints) split from `DATABASE_URL` (Supabase); the backend starts again with the current `.env`.
+- `supabase/`: local config (email 6-digit code, Apple prepared but off, no anonymous sign-ins), sign-in code template, read-only audit query for the hosted project.
+- `backend/scripts/plan_sqlite_migration.py`: read-only dry run (108 Oura days, 5 legacy check-ins; 5 sleep-score-only days skipped).
+
+Hosted Rhythm project (`tiljxtrvtyaycdorccvs`): read-only checks returned 502/521 (likely paused). Nothing was changed there.
 
 ## F1 — capacity engine v2 (done, isolated)
 
@@ -80,3 +94,5 @@ Needs your approval or action:
 - **2026-10-10** — Web dashboard is part of the product vision (reverses "remove later"); whether to evolve `dashboard/` or rebuild is open.
 - **2026-10-10** — Engine clarifications: latest valid answer per check-in question, all history kept. Capacity disagreement follows the person and keeps the connected evidence. Demand disagreement is represented as uncertainty (a range and possible states), never a conservative state presented as definitive. Tasks without estimate or effort stay visible but get no point value or assumed effort. An empty calendar doesn't imply no demands. Overdue tasks count only when rescheduled or planned for today. Check-in labels and guidance text are placeholders for the redesign. Task counts and scheduled time may reach the interpretation layer; notes and task titles are excluded by default.
 - **2026-10-10** — Definitions: *Goals* are longer-term outcomes that connect to tasks. *Habits* are repeatable behaviors without streak-driven pressure. *Routines* structure the day and may occupy calendar time. *Commitments* are scheduled obligations or non-negotiables. None is automatically a capacity benefit or added demand; their effect depends on actual scheduling and context, and scheduled time is merged with calendar time so nothing is double-counted. They connect to Plan and Today; management screens may live under You.
+- **2026-10-10** — Product: existing dashboard preserved as reference, UI replaced incrementally; goals, habits and routines are in the functional MVP; accounts-first (Apple + email code) with optional preview.
+- **2026-10-10** — Supabase is the primary auth and persistence layer for mobile and web; FastAPI owns the engine, interpretations and secure integration operations. Restrictive RLS with an explicit client/backend access matrix; backend authorization never relies on RLS alone. Data deletion foundation is distinct from full account deletion. Use the existing Rhythm Supabase project (no new project); hosted changes need approval.
