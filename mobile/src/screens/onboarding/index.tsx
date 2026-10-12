@@ -6,6 +6,7 @@ import NameScreen from "./NameScreen";
 import TrackerScreen from "./TrackerScreen";
 import ToneScreen from "./ToneScreen";
 import DoneScreen from "./DoneScreen";
+import SplashScreen from "./SplashScreen";
 
 export default function OnboardingNavigator() {
   const [screenIndex, setScreenIndex] = useState(2);
