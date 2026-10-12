@@ -80,7 +80,7 @@ export function SectionHeader({
 type ButtonProps = {
   label: string;
   onPress?: () => void;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "neutral" | "ghost";
   size?: "md" | "sm";
   disabled?: boolean;
   fullWidth?: boolean;
@@ -105,6 +105,7 @@ export function Button({
     fullWidth && { alignSelf: "stretch" },
     variant === "primary" && { backgroundColor: disabled ? c.disabled : c.ink },
     variant === "secondary" && { borderWidth: 1, borderColor: c.borderStrong },
+    variant === "neutral" && { backgroundColor: c.fillMuted },
     variant === "ghost" && styles.buttonGhost,
   ].filter(Boolean) as ViewStyle[];
   const textColor =

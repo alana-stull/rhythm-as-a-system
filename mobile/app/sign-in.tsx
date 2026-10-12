@@ -1,12 +1,39 @@
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
+import * as AppleAuthentication from "expo-apple-authentication";
+import Constants, { ExecutionEnvironment } from "expo-constants";
+import { Image, KeyboardAvoidingView, Platform, Pressable, Text as RNText, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSession } from "../src/auth/SessionProvider";
-import { Button, color, Icon, minTouch, space, Text, TextField } from "../src/design";
+import { Button, color, fontFamily, Icon, minTouch, radius, space, Text, TextField } from "../src/design";
 import { supabaseConfigured } from "../src/lib/supabase";
 
 type Step = "welcome" | "email" | "code";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Apple's own button in real builds (required artwork and wording). Expo Go
+// lacks that native view, so development review gets a same-size stand-in.
+const IN_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+function AppleButton({ onPress }: { onPress: () => void }) {
+  if (!IN_EXPO_GO) {
+    return (
+      <AppleAuthentication.AppleAuthenticationButton
+        buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+        cornerRadius={radius.button}
+        style={styles.authButton}
+        onPress={onPress}
+      />
+    );
+  }
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Continue with Apple"
+               style={({ pressed }) => [styles.authButton, styles.appleStandIn, pressed && { opacity: 0.8 }]}>
+      <RNText style={styles.appleGlyph} allowFontScaling={false}>{"\uF8FF"}</RNText>
+      <RNText style={styles.appleLabel} maxFontSizeMultiplier={1.3}>Continue with Apple</RNText>
+    </Pressable>
+  );
+}
 
 // Welcome → email → 6-digit code. The only way into Rhythm.
 export default function SignIn() {
@@ -38,19 +65,26 @@ export default function SignIn() {
 
   if (step === "welcome") {
     return (
-      <SafeAreaView style={styles.root}>
-        <View style={styles.welcome}>
-          <Text variant="section" style={{ marginBottom: 6 }}>Rhythm</Text>
-          <Text variant="display" accessibilityRole="header" style={{ marginBottom: 14 }}>
-            What you have to give, alongside what life asks of you.
+      <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
+        <View style={styles.hero}>
+          <View style={styles.brand} accessible accessibilityRole="header" accessibilityLabel="Rhythm. Your systems, in sync.">
+            <Image source={require("../src/components/logo.png")} style={styles.mark} resizeMode="cover" />
+            <Text style={styles.wordmark} maxFontSizeMultiplier={1.3}>rhythm</Text>
+            <Text variant="meta" color={color.muted} style={styles.tagline}>your systems, in sync.</Text>
+          </View>
+        </View>
+        <View style={styles.actions}>
+          <Text variant="question" accessibilityRole="header" style={[styles.center, styles.headline]}>
+            Make room for what matters.
           </Text>
-          <Text style={{ marginBottom: space.lg }}>
-            Rhythm helps you see your capacity and your commitments together, so you can make more intentional decisions
-            about your day — not just a longer to-do list.
-          </Text>
-          <Button label="Continue with email" onPress={() => setStep("email")} disabled={!supabaseConfigured} />
+          {Platform.OS === "ios" && (
+            <AppleButton onPress={() => setError("Sign in with Apple isn't set up yet. Continue with email for now.")} />
+          )}
+          <Button label="Continue with email" variant="neutral" fullWidth style={styles.authButton}
+                  onPress={() => { setError(null); setStep("email"); }} disabled={!supabaseConfigured} />
+          {error && <Text variant="meta" color={color.muted} style={styles.center} accessibilityLiveRegion="polite">{error}</Text>}
           {!supabaseConfigured && (
-            <Text variant="meta" color={color.muted} style={{ marginTop: space.sm }}>
+            <Text variant="meta" color={color.muted} style={styles.center}>
               Sign-in isn't configured in this build (EXPO_PUBLIC_SUPABASE_URL).
             </Text>
           )}
@@ -128,7 +162,20 @@ export default function SignIn() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.cream },
-  welcome: { flex: 1, justifyContent: "center", paddingHorizontal: space.lg },
+  // Welcome: brand in the upper middle, headline + actions on the safe-area floor.
+  hero: { flex: 1, paddingHorizontal: space.lg, justifyContent: "center", paddingBottom: space.xxl },
+  brand: { alignItems: "center" },
+  mark: { width: 80, height: 80, borderRadius: 18, marginBottom: space.md },  // the logo file's own soft neutral ground
+  wordmark: { fontFamily: fontFamily.serif, fontSize: 34, lineHeight: 40, letterSpacing: -0.5, color: color.ink },
+  tagline: { marginTop: 6, fontSize: 15, lineHeight: 20, letterSpacing: 0.3 },
+  headline: { fontSize: 18, lineHeight: 24, marginBottom: space.xs },
+  center: { textAlign: "center" },
+  actions: { paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.sm },
+  authButton: { height: 52, width: "100%" },
+  appleStandIn: { backgroundColor: "#000", borderRadius: radius.button, flexDirection: "row", alignItems: "center",
+                  justifyContent: "center", gap: 6 },
+  appleGlyph: { color: "#fff", fontSize: 19, marginTop: -3 },
+  appleLabel: { color: "#fff", fontSize: 17, fontWeight: "600" },
   top: { paddingHorizontal: space.gutter, paddingTop: space.xs },
   back: { width: minTouch, height: minTouch, justifyContent: "center", marginLeft: -12, paddingLeft: 12 },
   body: { flex: 1, paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.sm },

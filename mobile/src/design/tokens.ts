@@ -28,6 +28,7 @@ export const color = {
   dashed: "rgba(27,27,29,0.25)",      // "no data yet" outlines
   disabled: "rgba(27,27,29,0.35)",
   scrim: "rgba(27,27,29,0.32)",
+  fillMuted: "#F0ECE3",     // light neutral fill, distinct from cream (secondary actions)
   segmentTrack: "#F0ECE3",
   sheetHandle: "rgba(27,27,29,0.18)",
 
