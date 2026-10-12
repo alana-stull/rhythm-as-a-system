@@ -40,7 +40,7 @@ STATE_MEANING: dict[State, str] = {
 # ── Phrasing helpers ───────────────────────────────────────────────────────────
 
 def _basis_phrase(e: Evidence) -> str:
-    if e.signal == "energy":
+    if e.signal in ("energy", "rested"):
         return "how you said you're feeling"
     if e.signal == "perceived_demand":
         return "how heavy you said today feels"

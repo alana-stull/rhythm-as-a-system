@@ -1,13 +1,19 @@
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import { clearPriority, createTask, makePriority, setCompleted } from "../../src/api/endpoints";
+import type { Today as TodayData } from "../../src/api/types";
 import {
+  Button,
   Card,
-  DarkCallout,
+  CapacityDisplay,
   ChecklistRow,
   color,
+  DarkCallout,
   Eyebrow,
   Icon,
+  PastelKey,
+  pastel,
   Screen,
   ScreenHeader,
   SectionHeader,
@@ -17,93 +23,139 @@ import {
   Text,
   TextField,
 } from "../../src/design";
-import { mockNow, mockToday } from "../../src/fixtures/p0";
-import { capacityContext } from "../../src/today/capacityContext";
+import { useEventTitles } from "../../src/integrations/calendar";
+import { CheckinSheet } from "../../src/today/CheckinSheet";
+import { useToday } from "../../src/today/useToday";
 
 const MAX_PRIORITIES = 3; // Top 3 (tasks.priority_rank 1–3)
-const SCHEDULE_PREVIEW = 2; // the rest lives in Plan
 
 function greeting(d: Date) {
   const h = d.getHours();
   return h < 12 ? "Good morning." : h < 17 ? "Good afternoon." : "Good evening.";
 }
 
-// "2:00" / "3:30" — the boards' clock style; "2–3:30" for ranges.
-function clock(d: Date) {
-  const h = d.getHours() % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-function compact(d: Date) {
-  return d.getMinutes() === 0 ? String(d.getHours() % 12 || 12) : clock(d);
+// "2:00" / "3:30" — the boards' clock style.
+function clock(iso: string) {
+  const d = new Date(iso);
+  return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-// P0 composition of the Today board on mock data. Interactions are local only.
+function badgeState(c: TodayData["capacity"]): CapacityDisplay {
+  if (c.status === "assessed" && c.state) return c.state;
+  return c.status === "uncertain" ? "Uncertain" : "Insufficient";
+}
+
+// Highlighted words (e.g. "4 days") in light amber, as on the board.
+function Highlighted({ text, highlight }: { text: string; highlight: string | null }) {
+  const at = highlight ? text.indexOf(highlight) : -1;
+  if (!highlight || at < 0) return <Text color={color.onInk}>{text}</Text>;
+  return (
+    <Text color={color.onInk}>
+      {text.slice(0, at)}
+      <Text variant="bodyStrong" color={color.amberLight}>{highlight}</Text>
+      {text.slice(at + highlight.length)}
+    </Text>
+  );
+}
+
 export default function Today() {
   const router = useRouter();
-  const now = useMemo(() => mockNow(), []);
-  const data = useMemo(() => mockToday(now), [now]);
-  const context = capacityContext(data.capacity.evidence);
-  const [items, setItems] = useState(data.priorities);
+  const { data, setData, areas, error, refreshing, reload } = useToday();
+  const titles = useEventTitles(data?.schedule.upcoming ?? []);
   const [draft, setDraft] = useState("");
-  const canAdd = items.length < MAX_PRIORITIES;
+  const [sheet, setSheet] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const now = useMemo(() => new Date(), [data]);
 
-  // Upcoming = starts later today. Never more than two on Today.
-  const upcoming = data.events
-    .filter((e) => e.start >= now && e.start.toDateString() === now.toDateString())
-    .slice(0, SCHEDULE_PREVIEW);
-
-  // A recommendation about a task only stands while that task is open and its
-  // window is still ahead of us today.
-  const rec = data.recommendation;
-  const windowAhead = rec.window.start >= now && rec.window.end.toDateString() === now.toDateString();
-  const recTask = windowAhead ? items.find((p) => p.id === rec.taskId && !p.done) : undefined;
-
-  const add = () => {
-    const label = draft.trim();
-    if (!label || !canAdd) return;
-    setItems((xs) => [...xs, { id: `x${Date.now()}`, label, done: false }]);
-    setDraft("");
+  // Optimistic edit, then the server's view of the day (the state can change).
+  const act = async (optimistic: (d: TodayData) => TodayData, call: () => Promise<unknown>) => {
+    if (data) setData(optimistic(data));
+    setActionError(null);
+    try {
+      await call();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "That didn't save.");
+    }
+    reload();
   };
 
+  const add = async () => {
+    const title = draft.trim();
+    if (!title) return;
+    setDraft("");
+    await act((d) => d, async () => makePriority((await createTask(title)).id));
+  };
+
+  const header = (
+    <ScreenHeader
+      overline={now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+      title={greeting(now)}
+    />
+  );
+
+  if (!data) {
+    return (
+      <Screen header={header} gap={space.lg} refreshing={refreshing} onRefresh={() => reload(true)}>
+        {error ? (
+          <Card>
+            <Text style={{ marginBottom: space.sm }}>{error}</Text>
+            <Button label="Try again" variant="secondary" onPress={() => reload()} />
+          </Card>
+        ) : (
+          <Text color={color.muted}>Loading your day…</Text>
+        )}
+      </Screen>
+    );
+  }
+
+  const cap = data.capacity;
+  const state = badgeState(cap);
+  const wmn = data.what_matters_now;
+  const priorities = data.priorities;
+  const canAdd = priorities.length < MAX_PRIORITIES;
+  const upcoming = data.schedule.upcoming;
+
   return (
-    <Screen
-      gap={space.lg}
-      header={
-        <ScreenHeader
-          overline={now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-          title={greeting(now)}
-        />
-      }
-    >
+    <Screen header={header} gap={space.lg} refreshing={refreshing} onRefresh={() => reload(true)}>
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs }}>
           <Eyebrow>How you're doing</Eyebrow>
-          <StateBadge state={data.capacity.state} size="sm" />
+          <StateBadge
+            state={state}
+            size="sm"
+            label={state === "Insufficient" && !cap.checked_in_today ? "No data yet — how are you feeling?" : undefined}
+            onPress={() => setSheet(true)}
+          />
         </View>
         {/* Why capacity looks this way. "What matters now" is what to do about it. */}
-        {context && <Text style={{ marginTop: 10 }}>{context}</Text>}
+        {cap.context && <Text style={{ marginTop: 10 }}>{cap.context}</Text>}
       </Card>
 
-      {recTask && (
-        <DarkCallout eyebrow="What matters now">
-          <Text color={color.onInk}>
-            {recTask.label} has been pushed{" "}
-            <Text variant="bodyStrong" color={color.amberLight}>{rec.deferredDays} days</Text>. Your{" "}
-            {compact(rec.window.start)}–{compact(rec.window.end)} is open and fits it.
-          </Text>
-        </DarkCallout>
+      {wmn && (
+        wmn.kind === "check_in" ? (
+          <Pressable onPress={() => setSheet(true)} accessibilityRole="button" accessibilityHint="Opens a quick check-in">
+            <DarkCallout eyebrow="What matters now"><Highlighted text={wmn.text} highlight={wmn.highlight} /></DarkCallout>
+          </Pressable>
+        ) : (
+          <DarkCallout eyebrow="What matters now"><Highlighted text={wmn.text} highlight={wmn.highlight} /></DarkCallout>
+        )
       )}
 
       <View>
         <SectionHeader title="Priorities" />
         <Card padding="list">
-          {items.map((p) => (
+          {priorities.map((p) => (
             <ChecklistRow
               key={p.id}
-              label={p.label}
-              checked={p.done}
-              onToggle={() => setItems((xs) => xs.map((x) => (x.id === p.id ? { ...x, done: !x.done } : x)))}
-              onRemove={() => setItems((xs) => xs.filter((x) => x.id !== p.id))}
+              label={p.title}
+              checked={!!p.completed_at}
+              onToggle={() => act(
+                (d) => ({ ...d, priorities: d.priorities.map((x) => x.id === p.id
+                  ? { ...x, completed_at: x.completed_at ? null : new Date().toISOString() } : x) }),
+                () => setCompleted(p.id, !p.completed_at))}
+              onRemove={() => act(
+                (d) => ({ ...d, priorities: d.priorities.filter((x) => x.id !== p.id) }),
+                () => clearPriority(p.id))}
             />
           ))}
           {canAdd && (
@@ -121,31 +173,40 @@ export default function Today() {
             </View>
           )}
         </Card>
+        {actionError && <Text variant="meta" color="#6B2F2A" style={{ marginTop: 6 }}>{actionError}</Text>}
       </View>
 
       <View>
-        <SectionHeader title="Today's schedule"linkLabel="View full day →" onLinkPress={() => router.navigate("/plan")} />
+        <SectionHeader title="Today's schedule" linkLabel="View full day →" onLinkPress={() => router.navigate("/plan")} />
         <Card padding="list">
           {upcoming.length === 0 ? (
             <Text variant="meta" color={color.muted} style={{ paddingVertical: 10, paddingHorizontal: space.sm }}>
-              Nothing else on the calendar today.
+              {data.schedule.calendar_connected ? "Nothing else on the calendar today." : "Connect your calendar in Settings to see what's next."}
             </Text>
           ) : (
-            upcoming.map((e) => (
-              <View
-                key={e.id}
-                accessible
-                accessibilityLabel={`${clock(e.start)}, ${e.title}${e.tag ? `, ${e.tag.name}` : ""}`}
-                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: space.sm }}
-              >
-                <Text variant="meta" color={color.muted} style={{ width: 40 }}>{clock(e.start)}</Text>
-                <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{e.title}</Text>
-                {e.tag && <TagChip tag={e.tag} size="sm" />}
-              </View>
-            ))
+            upcoming.map((e) => {
+              const title = e.title ?? titles[e.external_id ?? ""] ?? "Busy";
+              const area = e.area_id ? areas[e.area_id] : undefined;
+              const tag = area?.color_family && area.color_family in pastel
+                ? { id: area.id, name: area.name, color: area.color_family as PastelKey } : undefined;
+              return (
+                <View
+                  key={e.id}
+                  accessible
+                  accessibilityLabel={`${clock(e.starts_at)}, ${title}${tag ? `, ${tag.name}` : ""}`}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: space.sm }}
+                >
+                  <Text variant="meta" color={color.muted} style={{ width: 40 }}>{clock(e.starts_at)}</Text>
+                  <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{title}</Text>
+                  {tag && <TagChip tag={tag} size="sm" />}
+                </View>
+              );
+            })
           )}
         </Card>
       </View>
+
+      <CheckinSheet visible={sheet} onClose={() => setSheet(false)} onSaved={() => reload()} />
     </Screen>
   );
 }

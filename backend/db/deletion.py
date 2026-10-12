@@ -18,13 +18,15 @@ from sqlalchemy import Connection, text
 # Children before parents. A test checks this covers every table with user_id.
 USER_TABLES = (
     "interpretations", "daily_assessments", "external_events", "health_daily", "connections",
+    "llm_usage", "event_overrides", "calendar_settings", "what_helps",
     "checkins", "plan_blocks", "recurring_item_logs", "recurring_items", "tasks", "goals", "areas",
 )
 
 _PROFILE_RESET = """
 update public.profiles
    set display_name = null, tone = null, tracker_choice = null, onboarding_step = null,
-       onboarding_completed_at = null, timezone = 'UTC'
+       onboarding_completed_at = null, timezone = 'UTC', onboarding_answers = '{}',
+       preferred_health_source = null, ai_task_titles_consented_at = null
  where id = :uid
 """
 

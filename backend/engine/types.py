@@ -57,6 +57,15 @@ class EnergyLevel(str, Enum):
     VERY_HIGH = "very_high"
 
 
+class RestedLevel(str, Enum):
+    """"How rested do you feel?" A separate signal from energy (decided 2026-10-11)."""
+    VERY_LOW = "very_low"
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    VERY_HIGH = "very_high"
+
+
 class PerceivedDemand(str, Enum):
     VERY_LIGHT = "very_light"
     LIGHT = "light"
@@ -72,6 +81,14 @@ ENERGY_LABELS: dict[EnergyLevel, str] = {
     EnergyLevel.MODERATE: "Okay",
     EnergyLevel.HIGH: "Good",
     EnergyLevel.VERY_HIGH: "Full of energy",
+}
+
+RESTED_LABELS: dict[RestedLevel, str] = {
+    RestedLevel.VERY_LOW: "Not at all",
+    RestedLevel.LOW: "A little",
+    RestedLevel.MODERATE: "Fairly",
+    RestedLevel.HIGH: "Well rested",
+    RestedLevel.VERY_HIGH: "Fully rested",
 }
 
 PERCEIVED_DEMAND_LABELS: dict[PerceivedDemand, str] = {
@@ -213,6 +230,7 @@ class CheckIn:
     energy: EnergyLevel | None = None
     perceived_demand: PerceivedDemand | None = None
     context_tags: frozenset[str] = frozenset()
+    rested: RestedLevel | None = None
 
 
 @dataclass(frozen=True)

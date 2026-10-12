@@ -53,6 +53,9 @@ def fresh_project(pg_engine):
         psycopg.connect(ADMIN).close()
     except psycopg.Error:
         pytest.skip("local supabase_admin not reachable")
+    with psycopg.connect(OWNER) as c:
+        if c.execute("select count(*) from public.profiles").fetchone()[0]:
+            pytest.skip("local database holds real data (someone has signed in); this test drops the whole schema")
     assert _alembic(OWNER_SA, "downgrade", "base").returncode == 0
     with psycopg.connect(OWNER, autocommit=True) as c:
         c.execute("drop schema if exists rhythm_private cascade")  # only the empty version table remains
@@ -67,7 +70,7 @@ def fresh_project(pg_engine):
             c.execute("drop schema if exists rhythm_private cascade")
         restored = _alembic(OWNER_SA, "upgrade", "head")
         assert restored.returncode == 0, restored.stderr[-2000:]
-    assert "0001 (head)" in _alembic(OWNER_SA, "current").stdout
+    assert "0002 (head)" in _alembic(OWNER_SA, "current").stdout
 
 
 def _sim_role(*, trigger: bool, references: bool) -> str:
@@ -96,6 +99,6 @@ def test_successful_migration_is_complete(fresh_project):
     result = _alembic(OWNER_SA, "upgrade", "head")
     assert result.returncode == 0, result.stderr[-2000:]
     inv = _inventory()
-    assert inv["public_tables"] == 13 and inv["rhythm_private"] == 1 and inv["functions"] == 2
-    assert inv["policies"] == 33 and inv["trigger"] == 1
-    assert "0001 (head)" in _alembic(OWNER_SA, "current").stdout
+    assert inv["public_tables"] == 17 and inv["rhythm_private"] == 1 and inv["functions"] == 3
+    assert inv["policies"] == 45 and inv["trigger"] == 1
+    assert "0002 (head)" in _alembic(OWNER_SA, "current").stdout

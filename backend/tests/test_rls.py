@@ -14,9 +14,10 @@ from backend.tests.pg_support import as_role, make_user, pg_engine  # noqa: F401
 
 pytestmark = pytest.mark.postgres
 
-CLIENT_WRITABLE = {"areas", "goals", "tasks", "recurring_items", "recurring_item_logs", "plan_blocks"}
+CLIENT_WRITABLE = {"areas", "goals", "tasks", "recurring_items", "recurring_item_logs", "plan_blocks",
+                   "calendar_settings", "event_overrides", "what_helps"}
 CLIENT_READ_ONLY = {"health_daily", "external_events", "daily_assessments", "interpretations"}
-BACKEND_ONLY = {"connections"}
+BACKEND_ONLY = {"connections", "llm_usage"}
 
 
 def _sqlstate(exc: DBAPIError) -> str:
@@ -85,7 +86,8 @@ def test_privileges_match_the_access_matrix(tx):
         assert grants[t] == {"SELECT", "INSERT", "UPDATE", "DELETE"}, t
     for t in CLIENT_READ_ONLY:
         assert grants[t] == {"SELECT"}, t
-    assert "connections" not in grants
+    for t in BACKEND_ONLY:
+        assert t not in grants, t
     assert grants["profiles"] == {"SELECT"}          # update is column-level only
     assert grants["checkins"] == {"SELECT", "DELETE"}  # insert is column-level only
 

@@ -116,6 +116,14 @@ def _seed(conn, uid):
         "'2.0.0', 't', 'h') returning id"), {"u": uid}).scalar_one()
     conn.execute(text("insert into public.interpretations (user_id, assessment_id, kind, context_version, context, body) "
                       "values (:u, :a, 'fallback', 'interpretation-context-2', '{}', 'b')"), {"u": uid, "a": a_id})
+    # 0002
+    conn.execute(text("insert into public.calendar_settings (user_id, source, calendar_ref, default_area_id) "
+                      "values (:u, 'apple_calendar', 'cal-hash', :a)"), {"u": uid, "a": area})
+    conn.execute(text("insert into public.event_overrides (user_id, source, external_id, treatment) "
+                      "values (:u, 'apple_calendar', 'evt-1', 'ignore')"), {"u": uid})
+    conn.execute(text("insert into public.what_helps (user_id, text) values (:u, 'A walk after lunch')"), {"u": uid})
+    conn.execute(text("insert into public.llm_usage (user_id, purpose, model, outcome) "
+                      "values (:u, 'what_matters_now', 'm', 'ok')"), {"u": uid})
 
 
 def _count(conn, uid):

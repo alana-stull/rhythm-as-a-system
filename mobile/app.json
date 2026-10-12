@@ -1,15 +1,18 @@
 {
   "expo": {
     "name": "Rhythm",
-    "slug": "mobile",
+    "slug": "rhythm",
     "scheme": "rhythm",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.rhythm.mobile"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.rhythm.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.rhythm.mobile",
@@ -24,7 +27,12 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -33,7 +41,23 @@
           "resizeMode": "contain",
           "backgroundColor": "#FAF8F4"
         }
-      ]
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Rhythm reads when you are busy so it can see what today asks of you. Event names stay on your phone.",
+          "remindersPermission": false
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Rhythm reads your sleep, heart rate variability and resting heart rate to understand what you have to give today. It never writes to Apple Health.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ],
+      "expo-dev-client"
     ]
   }
 }

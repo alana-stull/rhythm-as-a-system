@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Icon } from "../icons";
 import { color as c, minTouch, space } from "../tokens";
@@ -15,18 +15,26 @@ export function Screen({
   scroll = true,
   overlay,
   gap = space.sm,
+  refreshing,
+  onRefresh,
 }: {
   header?: React.ReactNode;
   children: React.ReactNode;
   scroll?: boolean;
   overlay?: React.ReactNode;
   gap?: number;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       {header && <View style={styles.header}>{header}</View>}
       {scroll ? (
-        <ScrollView contentContainerStyle={[styles.content, { gap }]} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[styles.content, { gap }]}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={c.muted} /> : undefined}
+        >
           {children}
         </ScrollView>
       ) : (

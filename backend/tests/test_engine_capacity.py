@@ -135,3 +135,47 @@ def test_later_demand_only_checkin_does_not_erase_energy():
 def test_future_and_other_day_checkins_are_ignored():
     c, _ = cap(checkins=[checkin(energy="low", hour=15), checkin(energy="low", day=YESTERDAY)], now_hour=12)
     assert c.band is None
+
+
+# ── "How rested" (engine 2.1) ─────────────────────────────────────────────────
+
+@pytest.mark.parametrize("rested,band", [
+    ("very_low", CapacityBand.LOW), ("low", CapacityBand.LOW), ("moderate", CapacityBand.MODERATE),
+    ("high", CapacityBand.HIGH), ("very_high", CapacityBand.HIGH),
+])
+def test_rested_alone_is_self_reported_capacity(rested, band):
+    c, _ = cap(checkins=(checkin(rested=rested),))
+    assert c.band == band and c.reported_band == band and c.confidence == Confidence.MEDIUM
+    assert c.basis == (EvidenceKind.SELF_REPORT,)
+    [e] = c.evidence
+    assert e.signal == "rested" and e.kind == EvidenceKind.SELF_REPORT and e.record_ids == ("c1",)
+
+
+@pytest.mark.parametrize("energy,rested,band", [
+    ("high", "high", CapacityBand.HIGH),
+    ("high", "very_low", CapacityBand.MODERATE),     # two bands apart: midpoint
+    ("low", "very_high", CapacityBand.MODERATE),
+    ("high", "moderate", CapacityBand.HIGH),         # one band apart: energy (right now) wins the tie
+    ("moderate", "low", CapacityBand.MODERATE),
+    ("low", "moderate", CapacityBand.LOW),
+])
+def test_rested_and_energy_combine_without_erasing_either(energy, rested, band):
+    c, _ = cap(checkins=(checkin(energy=energy, rested=rested),))
+    assert c.band == band
+    assert {e.signal for e in c.evidence} == {"energy", "rested"}
+
+
+def test_rested_and_energy_each_use_their_latest_answer():
+    c, _ = cap(checkins=(
+        checkin(energy="low", rested="very_low", hour=7, id="early"),
+        checkin(energy="high", hour=10, id="later"),
+    ))
+    by_signal = {e.signal: e for e in c.evidence}
+    assert by_signal["energy"].record_ids == ("later",) and by_signal["rested"].record_ids == ("early",)
+    assert c.band == CapacityBand.MODERATE  # high + low → midpoint
+
+
+def test_rested_counts_against_a_disagreeing_wearable_as_the_persons_report():
+    c, _ = cap(checkins=(checkin(energy="high", rested="high"),), wearable=(oura(readiness=40),))
+    assert c.band == CapacityBand.HIGH and c.disagreement is not None
+    assert c.disagreement.resolution == "followed_self_report"

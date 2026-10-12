@@ -31,8 +31,21 @@ def test_engine_never_reads_the_clock():
             assert call not in src, f"{path.name} calls {call}"
 
 
-def test_no_existing_app_module_imports_the_engine():
-    app_files = [*BACKEND.glob("*.py"), *(BACKEND / "routers").glob("*.py"), *(BACKEND / "services").glob("*.py")]
-    assert app_files
-    for path in app_files:
+# F3 wires the engine in through backend/pipeline only. The legacy v1
+# endpoints (SQLite scores, suggestions, uploads) must never mix with it.
+LEGACY = {"scores.py", "suggestions.py", "checkin.py", "upload.py", "lamp.py", "gcal_oauth.py", "oura_oauth.py"}
+ENGINE_USERS = {"today.py", "insights.py"}  # routers that may import the engine directly
+
+
+def test_legacy_modules_never_import_the_engine():
+    legacy = [p for p in (BACKEND / "routers").glob("*.py") if p.name in LEGACY]
+    legacy += [*BACKEND.glob("*.py"), *(BACKEND / "services").glob("*.py")]
+    assert legacy
+    for path in legacy:
         assert not any(n.startswith("backend.engine") for n in _imports(path)), path.name
+
+
+def test_only_the_pipeline_and_today_router_use_the_engine():
+    for path in (BACKEND / "routers").glob("*.py"):
+        if any(n.startswith("backend.engine") for n in _imports(path)):
+            assert path.name in ENGINE_USERS, path.name

@@ -17,6 +17,7 @@ from backend.engine._util import finite, fmt_minutes, latest_answer, median, sou
 from backend.engine.thresholds import Thresholds
 from backend.engine.types import (
     ENERGY_LABELS,
+    RESTED_LABELS,
     CapacityAssessment,
     CapacityBand,
     Confidence,
@@ -26,6 +27,7 @@ from backend.engine.types import (
     Evidence,
     EvidenceKind,
     Method,
+    RestedLevel,
     UnusedReason,
     WearableDay,
     rank,
@@ -38,6 +40,27 @@ ENERGY_TO_BAND: dict[EnergyLevel, CapacityBand] = {
     EnergyLevel.HIGH: CapacityBand.HIGH,
     EnergyLevel.VERY_HIGH: CapacityBand.HIGH,
 }
+
+RESTED_TO_BAND: dict[RestedLevel, CapacityBand] = {
+    RestedLevel.VERY_LOW: CapacityBand.LOW,
+    RestedLevel.LOW: CapacityBand.LOW,
+    RestedLevel.MODERATE: CapacityBand.MODERATE,
+    RestedLevel.HIGH: CapacityBand.HIGH,
+    RestedLevel.VERY_HIGH: CapacityBand.HIGH,
+}
+
+_BANDS = (CapacityBand.LOW, CapacityBand.MODERATE, CapacityBand.HIGH)
+
+
+def _reported_band(energy: CapacityBand | None, rested: CapacityBand | None) -> CapacityBand | None:
+    """Both are the person's own report. Combined at the midpoint; an exact tie
+    (one band apart) goes to energy, which describes right now."""
+    if energy is None or rested is None:
+        return energy or rested
+    total = rank(energy) + rank(rested)
+    if total % 2 == 0:
+        return _BANDS[total // 2]
+    return energy
 
 _RANGE_WORD = {CapacityBand.LOW: "lower", CapacityBand.MODERATE: "middle", CapacityBand.HIGH: "upper"}
 
@@ -189,10 +212,11 @@ def _components(inputs: DayInputs, chosen: WearableDay, t: Thresholds, used: lis
 def assess_capacity(inputs: DayInputs, t: Thresholds) -> tuple[CapacityAssessment, list[Evidence]]:
     w_band, w_conf, evidence, unused = _wearable(inputs, t)
 
+    # D3: each question uses the latest check-in that answered it.
+    energy_band = rested_band = None
     checkin = latest_answer(inputs.checkins, inputs.day, "energy")
-    r_band = None
     if checkin is not None:
-        r_band = ENERGY_TO_BAND[checkin.energy]
+        energy_band = ENERGY_TO_BAND[checkin.energy]
         label = ENERGY_LABELS[checkin.energy]
         evidence.append(Evidence(
             kind=EvidenceKind.SELF_REPORT, signal="energy", source="checkin",
@@ -200,6 +224,17 @@ def assess_capacity(inputs: DayInputs, t: Thresholds) -> tuple[CapacityAssessmen
             display=f"Energy: {label}", qualitative=f"described their energy as {label.lower()}",
             level=checkin.energy.value, recorded_at=checkin.recorded_at, record_ids=(checkin.id,),
         ))
+    rested = latest_answer(inputs.checkins, inputs.day, "rested")
+    if rested is not None:
+        rested_band = RESTED_TO_BAND[rested.rested]
+        label = RESTED_LABELS[rested.rested]
+        evidence.append(Evidence(
+            kind=EvidenceKind.SELF_REPORT, signal="rested", source="checkin",
+            method=Method.SELF_REPORTED, observed_for=rested.local_date,
+            display=f"Rested: {label}", qualitative=f"described how rested they feel as {label.lower()}",
+            level=rested.rested.value, recorded_at=rested.recorded_at, record_ids=(rested.id,),
+        ))
+    r_band = _reported_band(energy_band, rested_band)
 
     basis: list[EvidenceKind] = []
     if w_band is not None:

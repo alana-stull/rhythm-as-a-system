@@ -23,6 +23,9 @@ The technical foundation is not the product MVP. Every product capability below 
 | F1 — capacity engine v2, isolated | Done: `backend/engine/`, 162 tests, not wired to any endpoint or screen |
 | F2 — identity and persistence | Stage 1 done and verified on the hosted project (2026-10-10): migration `0001` applied; structural and behavioral (19/19) verification passed. Stage 2 not started. |
 | P0 — mobile design system and navigation shell | Done and approved 2026-10-11 (Today design approved; other tabs are labelled shells on mock data) |
+| F3 — inputs and one pipeline | Done locally 2026-10-11 (uncommitted): migration 0002, engine 2.1 (rested), /tasks, /areas, /checkins, recompute_day, GET /today, recommendations with OpenAI safeguards. 422 backend tests. |
+| F5 — mobile auth and data layer | Partly done 2026-10-11: email-code sign-in, Keychain session, access gate, Today/Settings/onboarding basics on real data. Firebase code still on disk (unused). |
+| F6 — integration adapters | Built, not yet tested on a device: Oura per user (needs secret rotation + redirect registration), Apple Calendar (Expo Go), Apple Health (needs a development build). |
 
 ## P0 — mobile design system and navigation shell
 
@@ -35,6 +38,31 @@ Source of truth: `Rhythm product mockups (1).html` (iOS boards first). Done 2026
 - Verified: `tsc` clean, iOS bundle export succeeds, runs in Expo Go (SDK 57) on the iOS 26.3 simulator; reviewed on the simulator and approved.
 
 Run tests: `.venv/bin/python -m pytest` (Postgres tests need `supabase start`; they skip otherwise). Setup and access rules: `docs/supabase-foundation.md`.
+
+## F3/F5/F6 — data foundation (2026-10-11, local only, uncommitted)
+
+Backend
+- Migration `0002` (applied locally only; round-trip downgrade/upgrade verified): `checkins.rested`; profile `onboarding_answers`, `preferred_health_source`, `ai_task_titles_consented_at`; task deferral history kept by a trigger (`first_focus_on`, `times_deferred`; clients can't write them); `protected` and one-off `event` plan blocks; protected recurring items + `cadence_note`; `calendar_settings` and `event_overrides` (per-calendar default tag, per-event "counts / doesn't count"); `what_helps`; backend-only `llm_usage` ledger; `interpretations.purpose` / `includes_task_titles`.
+- Engine 2.1.0: "How rested" is its own self-report evidence. With energy, the reported band is the midpoint; a one-band tie goes to energy. Recorded in `ASSUMPTIONS`.
+- `backend/pipeline/`: `recompute_day` rebuilds each day from all evidence (the v1 overwrite bugs can't occur there); "How you're doing" sentence from used evidence only (`context.py`); open windows (only with a fresh calendar; 8am–9pm, ≥30 min, protected time excluded); "What matters now" rules (`recommend.py`); optional OpenAI rewording (`llm.py`).
+- Endpoints: `GET /today`, `/tasks` (+ `PUT/DELETE /tasks/{id}/priority`, Top 3 incl. completed), `/areas`, `/checkins`, `/connections` (Oura OAuth/sync/disconnect; Apple Health daily summaries; Apple Calendar busy blocks), `/me` new fields.
+- OpenAI safeguards: rules always produce the sentence; the model only rephrases it; output validated (no new numbers, window kept, length, no clinical words); task titles only with consent (else "this task"); calendar titles, notes, health numbers and identity never sent; cached per recommendation; $20/month ceiling across users + per-person daily cap enforced from the ledger before calling; 6 s timeout, no retries. Live eval: `backend/scripts/eval_recommendations.py --yes` (spends money; not run).
+- Oura: tokens Fernet-encrypted; signed 10-minute OAuth state; scope `daily` only; HRV/RHR/sleep from `sleep` periods (fixes the `daily_sleep` issue); single-use refresh tokens saved first; 30-day backfill, then incremental.
+- Guardrail tests extended: every privileged SQL statement is checked for a user filter (parsed via AST); the global budget total is the one documented exception.
+
+Mobile
+- Supabase email 6-digit code sign-in, session in the Keychain (chunked), access gate (signed out → sign-in; not onboarded → onboarding; else app), `/me` time zone kept in sync with the phone.
+- Today on `GET /today` with the approved design; check-in sheet; Top 3 edits; schedule titles resolved on the device.
+- Settings: live connection states, Oura via auth session, Apple Calendar and Apple Health connect/sync, tags on `/areas`, sign out.
+- `app.json`: read-only Health (no write, no background delivery), calendar read only, no Reminders, no Face ID; `expo-dev-client`; `eas.json` profiles. `scripts/dev-local.sh` runs everything against local services (writes git-ignored `mobile/.env.local` and `backend/.env.local`).
+- Verified: real local sign-in → `/me` → check-in → task → Top 3 → `/today` over HTTP with a Supabase-issued token; app bundles and opens on the sign-in screen in the simulator.
+
+Still mocked or not built: Plan, Tasks, Insights and You screens (shells); onboarding steps 2–5 and 8; check-in reminder (toggle only); full account deletion; the AI task-title disclosure screen (titles are not sent until it exists).
+
+Blockers before real-world testing
+1. Rotate the Oura client secret (exposed in git history) and register `…/connections/oura/callback` in the Oura developer app; Oura apps are limited to 10 users until Oura approves them.
+2. Apple Health needs a development build with the HealthKit entitlement: Apple Developer Program membership.
+3. Set OpenAI prices in config to the model's current published rates (defaults are deliberately high).
 
 ## F0 — backups and prerequisites
 
@@ -118,3 +146,4 @@ Hosted Rhythm project (`tiljxtrvtyaycdorccvs`, Postgres 17.6):
 - **2026-10-11** — Approval scope: local-only work approved (P0, health normalization, engine improvements, local migration 0002, per-user Oura OAuth/sync, Apple Health and Calendar, backend OpenAI recommendations and evals, Expo/EAS config). Not approved without asking: hosted service changes, remote migrations, deploys, credential rotation, historical imports. Before real Oura connections: flag the exposed Oura secret for rotation and verify developer-app user limits for external testers. Real integrations are tested on a physical iPhone; scoring is evaluated against real data. P0 is reviewed before full screen implementation.
 - **2026-10-11** — No preview, guest or demo mode. Everyone signs in with email and completes onboarding before using Rhythm. The welcome screen has one action, "Continue with email". Supersedes the 2026-10-10 "optional on-device preview".
 - **2026-10-11** — Today's two cards have distinct jobs: "How you're doing" explains why capacity looks the way it does (evidence only: health, check-in, calendar); "What matters now" says what to do about it. The context sentence will come from the backend in F3; the mobile version mirrors that contract.
+- **2026-10-11** — Calendar privacy: Apple Calendar event titles never leave the phone; the server stores busy blocks with hashed calendar IDs. Rested + energy combine at the midpoint (ties to energy), provisional. Oura resting HR = the main sleep's lowest heart rate.

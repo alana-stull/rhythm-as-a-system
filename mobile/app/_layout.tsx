@@ -10,10 +10,54 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect } from "react";
+import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { color } from "../src/design";
+import { SessionProvider, useSession } from "../src/auth/SessionProvider";
+import { Button, color, space, Text } from "../src/design";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Access is gated: signed out → sign-in only; signed in but not onboarded →
+// onboarding only; otherwise the app. There is no guest or preview mode.
+function Gate() {
+  const { status, profile, profileError, refreshProfile, signOut } = useSession();
+  const resolving = status === "loading" || (status === "signedIn" && !profile && !profileError);
+
+  useEffect(() => {
+    if (!resolving) SplashScreen.hideAsync().catch(() => {});
+  }, [resolving]);
+
+  if (resolving) return null;
+
+  if (status === "signedIn" && !profile) {
+    return (
+      <View style={{ flex: 1, backgroundColor: color.cream, justifyContent: "center", padding: space.lg, gap: space.sm }}>
+        <Text variant="title" accessibilityRole="header">Can't reach Rhythm</Text>
+        <Text color={color.muted}>{profileError}</Text>
+        <Button label="Try again" onPress={refreshProfile} style={{ marginTop: space.md }} />
+        <Button label="Sign out" variant="ghost" onPress={signOut} style={{ alignSelf: "center" }} />
+      </View>
+    );
+  }
+
+  const signedOut = status === "signedOut";
+  const onboarded = !!profile?.onboarding_completed;
+  return (
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.cream } }}>
+      <Stack.Protected guard={signedOut}>
+        <Stack.Screen name="sign-in" />
+      </Stack.Protected>
+      <Stack.Protected guard={!signedOut && !onboarded}>
+        <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!signedOut && onboarded}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="design" />
+      </Stack.Protected>
+    </Stack>
+  );
+}
 
 export default function RootLayout() {
   // Keys must match `fontFamily` in src/design/typography.ts.
@@ -25,22 +69,14 @@ export default function RootLayout() {
     DMSans_600SemiBold,
     DMSans_700Bold,
   });
-
-  useEffect(() => {
-    if (loaded || error) SplashScreen.hideAsync().catch(() => {});
-  }, [loaded, error]);
-
   if (!loaded && !error) return null;
 
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.cream } }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="settings" />
-        <Stack.Screen name="design" />
-        <Stack.Screen name="onboarding" options={{ presentation: "fullScreenModal", gestureEnabled: false }} />
-      </Stack>
+      <SessionProvider>
+        <Gate />
+      </SessionProvider>
     </SafeAreaProvider>
   );
 }

@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
-from backend.db import deletion, profiles
+from backend.db import assessments, connections, day_inputs, deletion, profiles
+from backend.pipeline import llm
 from backend.db.scope import privileged, user_scope
 from backend.tests.pg_support import make_user, pg_engine  # noqa: F401
 
@@ -28,8 +29,23 @@ APP_FILES = [p for p in BACKEND.rglob("*.py")
 # Where privileged (RLS-bypassing) access is allowed, and why.
 PRIVILEGED_CALLERS = {
     "routers/me.py": {"_ensure", "delete_my_data"},  # profile fallback; data deletion
+    "routers/tasks.py": {"_today"},                   # profile fallback + time zone for "today"
+    "routers/checkins.py": {"_local_date"},           # same
+    "pipeline/recompute.py": {"recompute_day"},       # reads backend-only connections; writes assessments
+    "pipeline/today.py": {"build_today", "_remember_context", "_phrase_later"},  # writes interpretations and the usage ledger
+    # backend-only tokens and provider data
+    "routers/connections.py": {"list_connections", "oura_disconnect", "apple_health_upload", "apple_calendar_upload"},
+    "integrations/oura.py": {"_store", "_access_token", "sync"},
 }
-PRIVILEGED_SQL_FUNCTIONS = {deletion.delete_user_data, profiles.ensure_profile}
+PRIVILEGED_SQL_FUNCTIONS = {
+    deletion.delete_user_data, profiles.ensure_profile, profiles.get_profile,
+    day_inputs._checkins, day_inputs._tasks, day_inputs._calendar, day_inputs._wearable,
+    assessments.upsert_assessment, assessments.cached_interpretation, assessments.store_interpretation,
+    llm._record,
+    connections.get_connection, connections.list_connections, connections.save_tokens, connections.mark,
+    connections.mark_synced, connections.disconnect, connections.latest_health_day, connections.upsert_health_days,
+    connections.health_sources_on, connections.replace_calendar_events,
+}
 
 
 # ── Static guardrails (no database) ───────────────────────────────────────────
@@ -54,15 +70,46 @@ def test_privileged_access_is_allowlisted():
     assert found == PRIVILEGED_CALLERS
 
 
-def test_every_privileged_statement_filters_on_a_user_id():
+def _sql_literals(fn) -> list[str]:
+    """SQL strings in a function, as Python sees them (adjacent literals joined, f-string parts joined)."""
     import inspect
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    parts_of_fstrings = {id(v) for n in ast.walk(tree) if isinstance(n, ast.JoinedStr) for v in n.values}
+    out = []
+    for node in ast.walk(tree):
+        if id(node) in parts_of_fstrings:
+            continue
+        if isinstance(node, ast.JoinedStr):
+            s = "".join(v.value for v in node.values if isinstance(v, ast.Constant) and isinstance(v.value, str))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            s = node.value
+        else:
+            continue
+        if re.match(r"\s*(insert|update|delete|select)\b", s, re.I):
+            out.append(s)
+    return out
+
+
+def test_every_privileged_statement_filters_on_a_user_id():
     for fn in PRIVILEGED_SQL_FUNCTIONS:
-        src = inspect.getsource(fn) + (inspect.getsource(deletion) if fn is deletion.delete_user_data else "")
-        statements = re.findall(r'"""(.*?)"""|f?"((?:insert|update|delete|select)[^"]*)"', src, re.S | re.I)
-        sql = [s for pair in statements for s in pair if s and re.search(r"\b(insert|update|delete|select)\b", s, re.I)]
+        sql = _sql_literals(fn)
+        if fn is deletion.delete_user_data:
+            sql += [deletion._PROFILE_RESET]
         assert sql, fn.__name__
         for stmt in sql:
-            assert re.search(r"(user_id|\bid)\s*=\s*:(uid|id)|values \(:id\)", stmt, re.I), (fn.__name__, stmt)
+            if stmt.strip().startswith("select pg_advisory_xact_lock"):
+                continue
+            assert re.search(r"(user_id|\bid)\s*=\s*:(uid|id|u)\b|values \(:(id|u)\b", stmt, re.I), (fn.__name__, stmt)
+
+
+def test_the_only_unfiltered_privileged_query_is_the_global_budget_total():
+    """budget_block sums spend across all users (it returns one number, no rows); its per-user cap filters."""
+    import inspect
+    src = inspect.getsource(llm.budget_block)
+    selects = re.findall(r'"(select [^"]*)"', src, re.I)
+    unfiltered = [q for q in selects if "user_id" not in q and "pg_advisory_xact_lock" not in q]
+    assert len(unfiltered) == 1 and unfiltered[0].startswith("select coalesce(sum(cost_usd), 0) from public.llm_usage")
 
 
 def test_only_scope_module_switches_roles_or_sets_claims():

@@ -8,6 +8,7 @@ operations, always filtered on the verified user ID.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,6 +26,7 @@ router = APIRouter()
 
 Tone = Literal["gentle", "direct", "motivating"]
 TrackerChoice = Literal["oura", "apple_watch", "whoop", "other", "none"]
+HealthSource = Literal["oura", "apple_health"]
 
 
 class ProfileOut(BaseModel):
@@ -37,6 +39,10 @@ class ProfileOut(BaseModel):
     onboarding_step: str | None
     onboarding_completed: bool
     onboarding_completed_at: dt.datetime | None
+    onboarding_answers: dict
+    preferred_health_source: HealthSource | None
+    ai_task_titles_consented: bool
+    ai_task_titles_consented_at: dt.datetime | None
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -51,6 +57,20 @@ class ProfileUpdate(BaseModel):
     tracker_choice: TrackerChoice | None = None
     onboarding_step: str | None = Field(default=None, max_length=40)
     onboarding_completed: bool | None = None
+    onboarding_answers: dict | None = None
+    preferred_health_source: HealthSource | None = None
+    # Accepting the disclosure that relevant task titles may be sent to the
+    # recommendation model. False withdraws consent.
+    ai_task_titles_consented: bool | None = None
+
+    @field_validator("onboarding_answers")
+    @classmethod
+    def _answers(cls, v: dict | None) -> dict:
+        if v is None:
+            raise ValueError("onboarding_answers cannot be null; send {} to clear")
+        if len(json.dumps(v)) > 6000:
+            raise ValueError("onboarding_answers is too large")
+        return v
 
     @field_validator("display_name")
     @classmethod
@@ -83,7 +103,8 @@ class DataDeletionOut(BaseModel):
 
 def _out(row: dict, user: CurrentUser) -> ProfileOut:
     return ProfileOut(**{k: v for k, v in row.items()}, email=user.email,
-                      onboarding_completed=row["onboarding_completed_at"] is not None)
+                      onboarding_completed=row["onboarding_completed_at"] is not None,
+                      ai_task_titles_consented=row["ai_task_titles_consented_at"] is not None)
 
 
 def _ensure(engine: Engine, user: CurrentUser) -> None:
@@ -109,11 +130,12 @@ def get_me(user: CurrentUser = Depends(get_current_user), engine: Engine = Depen
 @router.patch("", response_model=ProfileOut)
 def update_me(body: ProfileUpdate, user: CurrentUser = Depends(get_current_user),
               engine: Engine = Depends(engine_or_503)):
-    values = {k: getattr(body, k) for k in body.model_fields_set if k != "onboarding_completed"}
-    if "onboarding_completed" in body.model_fields_set:
-        values["onboarding_completed_at"] = (
-            dt.datetime.now(dt.timezone.utc) if body.onboarding_completed else None
-        )
+    flags = {"onboarding_completed": "onboarding_completed_at",
+             "ai_task_titles_consented": "ai_task_titles_consented_at"}
+    values = {k: getattr(body, k) for k in body.model_fields_set if k not in flags}
+    for flag, column in flags.items():
+        if flag in body.model_fields_set:
+            values[column] = dt.datetime.now(dt.timezone.utc) if getattr(body, flag) else None
     _ensure(engine, user)
     with user_scope(engine, user.id) as conn:
         row = profiles.update_profile(conn, user.id, values)

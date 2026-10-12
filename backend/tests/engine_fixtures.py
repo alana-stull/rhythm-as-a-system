@@ -12,6 +12,7 @@ from backend.engine.types import (
     Effort,
     EnergyLevel,
     PerceivedDemand,
+    RestedLevel,
     Task,
     WearableDay,
 )
@@ -30,12 +31,13 @@ def day_ctx(now_hour: float = 12) -> DayContext:
 
 
 def checkin(energy: str | None = None, demand: str | None = None, hour: float = 8,
-            id: str = "c1", day: dt.date = DAY, tags: tuple[str, ...] = ()) -> CheckIn:
+            id: str = "c1", day: dt.date = DAY, tags: tuple[str, ...] = (), rested: str | None = None) -> CheckIn:
     return CheckIn(
         id=id, local_date=day, recorded_at=at(hour, day),
         energy=EnergyLevel(energy) if energy else None,
         perceived_demand=PerceivedDemand(demand) if demand else None,
         context_tags=frozenset(tags),
+        rested=RestedLevel(rested) if rested else None,
     )
 
 

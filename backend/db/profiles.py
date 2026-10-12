@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
 from sqlalchemy import Connection, text
 
 COLUMNS = ("id", "display_name", "tone", "timezone", "tracker_choice", "onboarding_step",
-           "onboarding_completed_at", "created_at", "updated_at")
-EDITABLE = ("display_name", "tone", "timezone", "tracker_choice", "onboarding_step", "onboarding_completed_at")
+           "onboarding_completed_at", "onboarding_answers", "preferred_health_source",
+           "ai_task_titles_consented_at", "created_at", "updated_at")
+EDITABLE = ("display_name", "tone", "timezone", "tracker_choice", "onboarding_step", "onboarding_completed_at",
+            "onboarding_answers", "preferred_health_source", "ai_task_titles_consented_at")
+JSONB = ("onboarding_answers",)
 _SELECT = ", ".join(COLUMNS)
 
 
@@ -27,9 +31,12 @@ def update_profile(conn: Connection, user_id: uuid.UUID, values: dict[str, Any])
         raise ValueError(f"not editable: {sorted(unknown)}")
     if not values:
         return get_profile(conn, user_id)
-    assignments = ", ".join(f"{col} = :{col}" for col in values)  # column names from EDITABLE only
+    # column names from EDITABLE only; jsonb values are sent as JSON text
+    assignments = ", ".join(
+        f"{col} = cast(:{col} as jsonb)" if col in JSONB else f"{col} = :{col}" for col in values)
+    params = {k: (json.dumps(v) if k in JSONB else v) for k, v in values.items()}
     row = conn.execute(
         text(f"update public.profiles set {assignments} where id = :id returning {_SELECT}"),
-        {**values, "id": user_id},
+        {**params, "id": user_id},
     ).mappings().first()
     return dict(row) if row else None

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-ENGINE_VERSION = "2.0.0"
+ENGINE_VERSION = "2.1.0"  # 2.1: "rested" check-in signal
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,7 @@ ASSUMPTIONS: tuple[str, ...] = (
     "Only today's wearable reading counts for today; older readings are reported as stale and not used.",
     "Each check-in signal uses the latest check-in that answered it (D3); earlier check-ins stay in history.",
     "Energy maps to capacity: very low/low → low, moderate → moderate, high/very high → high.",
+    "\"How rested\" maps the same way and is kept as separate evidence. With both answered, the self-reported band is their midpoint; an exact tie (one band apart) goes to energy, which describes right now.",
     "Perceived demand maps to demand: very light/light → light, moderate → moderate, heavy/very heavy → heavy.",
     "When a wearable and the person's energy disagree, capacity follows the person, the disagreement is kept and stated, and confidence drops.",
     "When known demand (calendar + tasks) and perceived demand disagree, neither is picked: demand becomes a range spanning both, and if that range covers more than one state the outcome is `uncertain` with the possible states listed.",

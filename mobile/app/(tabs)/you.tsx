@@ -31,7 +31,6 @@ export default function You() {
       <View style={{ gap: space.xs, marginTop: space.sm }}>
         <Text variant="eyebrow" color={color.muted}>Design review (P0)</Text>
         <Button variant="secondary" label="Component gallery" onPress={() => router.push("/design")} />
-        <Button variant="secondary" label="Onboarding frame" onPress={() => router.push("/onboarding")} />
       </View>
     </Screen>
   );

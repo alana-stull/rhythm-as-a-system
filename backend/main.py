@@ -3,7 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.database import Base, engine
-from backend.routers import checkin, gcal_oauth, lamp, me, oura_oauth, scores, suggestions, upload
+from backend.routers import (
+    areas, checkin, checkins, connections, gcal_oauth, lamp, me, oura_oauth, scores, suggestions, tasks, today, upload,
+)
 
 # Legacy SQLite tables only. The Supabase schema is managed by Alembic (backend/migrations).
 Base.metadata.create_all(bind=engine)
@@ -29,6 +31,12 @@ app.include_router(oura_oauth.router, prefix="/oura", tags=["oura"])
 app.include_router(gcal_oauth.router, prefix="/calendar", tags=["calendar"])
 app.include_router(lamp.router, prefix="/lamp", tags=["lamp"])
 app.include_router(me.router, prefix="/me", tags=["me"])
+# F3: Supabase-backed endpoints (authenticated, per-user)
+app.include_router(today.router, prefix="/today", tags=["today"])
+app.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
+app.include_router(areas.router, prefix="/areas", tags=["areas"])
+app.include_router(checkins.router, prefix="/checkins", tags=["checkins"])
+app.include_router(connections.router, prefix="/connections", tags=["connections"])
 
 @app.get("/health", tags=["meta"])
 def health():
