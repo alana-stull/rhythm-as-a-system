@@ -57,7 +57,11 @@ Mobile
 - `app.json`: read-only Health (no write, no background delivery), calendar read only, no Reminders, no Face ID; `expo-dev-client`; `eas.json` profiles. `scripts/dev-local.sh` runs everything against local services (writes git-ignored `mobile/.env.local` and `backend/.env.local`).
 - Verified: real local sign-in → `/me` → check-in → task → Top 3 → `/today` over HTTP with a Supabase-issued token; app bundles and opens on the sign-in screen in the simulator.
 
-Still mocked or not built: Plan, Tasks, Insights and You screens (shells); onboarding steps 2–5 and 8; check-in reminder (toggle only); full account deletion; the AI task-title disclosure screen (titles are not sent until it exists).
+Screens (2026-10-12): onboarding has all nine steps saving real data (profile answers, tags, brain-dump tasks, two check-ins incl. rested and context tags, connections, the AI task-title disclosure toggle, first-day priorities and a "Today, roughly" summary from real data), a progress bar and no sign-out. Plan (Day timeline with overlaps, Week, Month with state dots; add/move/delete Rhythm events, schedule a priority into an open window), Tasks (Today / This week / Later, tag filter, Top 3 star, add sheet), Insights (week strip, month grid, day detail with evidence/disagreement/why, patterns, where time went) and You (goals, rhythms, tags, what helps) all run on real data. Backend: `/goals`, `/rhythms`, `/what-helps`, `/plan` (+ `/plan/blocks`), `/insights` (+ `/insights/days/{date}`). P0 mock data and the shell placeholder are deleted.
+
+"What matters now" no longer waits on OpenAI: the rules' sentence is returned at once and the model's wording (if enabled, in budget and valid) is generated after the response and shown on the next load. `scripts/dev-local.sh` disables model calls unless `RHYTHM_LOCAL_LLM=1`. The destructive migration-rollback test now skips when the local database holds real data.
+
+Still not built: check-in reminder (toggle only); full account deletion; editing goals/rhythms in place (add and remove only); per-calendar tag settings UI.
 
 Blockers before real-world testing
 1. Rotate the Oura client secret (exposed in git history) and register `…/connections/oura/callback` in the Oura developer app; Oura apps are limited to 10 users until Oura approves them.

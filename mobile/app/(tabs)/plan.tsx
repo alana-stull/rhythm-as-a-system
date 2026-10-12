@@ -1,37 +1,441 @@
-import React, { useState } from "react";
-import { BottomSheet, Button, FAB, Screen, ScreenHeader, SegmentedControl, Text, TextField, color, space } from "../../src/design";
-import { ShellNote } from "../../src/shell/ShellNote";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
+import { Pressable, View } from "react-native";
+import {
+  type Area,
+  createBlock,
+  deleteBlock,
+  getPlan,
+  listAreas,
+  type Plan as PlanData,
+  type PlanItem,
+  setCompleted,
+  updateBlock,
+  updateTask,
+} from "../../src/api/endpoints";
+import {
+  BottomSheet,
+  Button,
+  Card,
+  CapacityDisplay,
+  FAB,
+  Icon,
+  Screen,
+  ScreenHeader,
+  SegmentedControl,
+  StateBadge,
+  TagChip,
+  Text,
+  TextField,
+  color,
+  minTouch,
+  radius,
+  space,
+  stateColor,
+} from "../../src/design";
+import { useEventTitles } from "../../src/integrations/calendar";
+import { addDays, clock, clockAmPm, fromIso, iso, startOfWeek } from "../../src/lib/dates";
+import { toTag } from "../../src/lib/tags";
 
 type View_ = "day" | "week" | "month";
+const START_HOUR = 7, END_HOUR = 22, ROW = 44;
+
+type Block = {
+  key: string; kind: PlanItem["kind"] | "open"; title: string; sub: string; start: Date; end: Date;
+  item?: PlanItem; window?: { starts_at: string; ends_at: string };
+};
+type Placed = Block & { col: number; cols: number };
+
+// Overlapping blocks sit side by side (columns per overlap cluster), as on the Plan board.
+function layout(blocks: Block[]): Placed[] {
+  const sorted = [...blocks].sort((a, b) => +a.start - +b.start || +a.end - +b.end);
+  const out: Placed[] = [];
+  let active: { col: number; end: number }[] = [];
+  let cluster: Placed[] = [];
+  const close = () => { const n = Math.max(0, ...cluster.map((p) => p.col)) + 1; cluster.forEach((p) => (p.cols = n)); cluster = []; };
+  for (const b of sorted) {
+    active = active.filter((a) => a.end > +b.start);
+    if (!active.length) close();
+    const used = active.map((a) => a.col);
+    let col = 0;
+    while (used.includes(col)) col++;
+    const placed = { ...b, col, cols: 1 };
+    active.push({ col, end: +b.end });
+    cluster.push(placed);
+    out.push(placed);
+  }
+  close();
+  return out;
+}
+
+const hourLabel = (h: number) => (h === 12 ? "12p" : h > 12 ? `${h - 12}p` : `${h}a`);
+const minutesBetween = (a: Date, b: Date) => Math.round((+b - +a) / 60000);
 
 export default function Plan() {
   const [view, setView] = useState<View_>("day");
-  const [sheet, setSheet] = useState(false);
+  const [date, setDate] = useState(() => new Date());
+  const [data, setData] = useState<PlanData | null>(null);
+  const [areas, setAreas] = useState<Record<string, Area>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Block | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newStart, setNewStart] = useState<Date | null>(null);
+  const [newMinutes, setNewMinutes] = useState(60);
+
+  const today = new Date();
+  const isToday = iso(date) === iso(today);
+  const [rangeStart, rangeDays] = useMemo<[Date, number]>(() => {
+    if (view === "day") return [date, 1];
+    if (view === "week") return [startOfWeek(date), 7];
+    const first = new Date(date.getFullYear(), date.getMonth(), 1);
+    return [first, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()];
+  }, [view, date]);
+
+  const load = useCallback(async () => {
+    try {
+      const [p, a] = await Promise.all([getPlan(iso(rangeStart), rangeDays), listAreas()]);
+      setData(p);
+      setAreas(Object.fromEntries(a.map((x) => [x.id, x])));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load your plan.");
+    }
+  }, [rangeStart, rangeDays]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const titles = useEventTitles(data?.items ?? []);
+  const titleOf = (i: PlanItem) =>
+    i.title ?? titles[i.external_id ?? ""] ?? (i.kind === "protected" ? "Protected" : i.kind === "calendar" ? "Busy" : "Untitled");
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setSelected(null);
+    setError(null);
+    try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "That didn't save."); }
+    load();
+  };
+
+  // ── Day ─────────────────────────────────────────────────────────────────────
+  const dayItems = (d: Date) => (data?.items ?? []).filter((i) => iso(new Date(i.starts_at)) === iso(d));
+  const blocks: Block[] = [
+    ...dayItems(date).filter((i) => !i.all_day).map((i) => ({
+      key: i.id, kind: i.kind, title: titleOf(i), item: i, start: new Date(i.starts_at), end: new Date(i.ends_at),
+      sub: i.kind === "calendar" ? "Synced · read-only" : i.kind === "protected" ? "No auto-suggest" : i.kind === "task" ? "Task" : "Rhythm",
+    })),
+    ...(isToday && view === "day" ? (data?.open_windows ?? []) : []).map((w) => ({
+      key: `open-${w.starts_at}`, kind: "open" as const, title: "Open", window: w, start: new Date(w.starts_at), end: new Date(w.ends_at),
+      sub: `${minutesBetween(new Date(w.starts_at), new Date(w.ends_at))} min window`,
+    })),
+  ];
+  const placed = layout(blocks);
+  const dayTasks = (data?.tasks ?? []).filter((t) => (t.focus_on ?? t.due_on) === iso(date));
+  const openPriorities = dayTasks.filter((t) => !t.completed_at && t.priority_rank !== null);
+
+  const startOptions = useMemo(() => {
+    const base = new Date(date);
+    if (isToday) {
+      base.setTime(Date.now());
+      base.setMinutes(base.getMinutes() < 30 ? 30 : 60, 0, 0);
+    } else base.setHours(9, 0, 0, 0);
+    return Array.from({ length: 6 }, (_, i) => new Date(+base + i * 30 * 60000)).filter((d) => d.getHours() < END_HOUR);
+  }, [date, isToday]);
+
+  const dayView = (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Pressable onPress={() => setDate((d) => addDays(d, -1))} accessibilityRole="button" accessibilityLabel="Previous day"
+                   style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center" }}>
+          <Icon name="chevronLeft" size={18} color={color.muted} />
+        </Pressable>
+        <Text variant="bodyStrong" accessibilityRole="header">
+          {date.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+        </Text>
+        <Pressable onPress={() => setDate((d) => addDays(d, 1))} accessibilityRole="button" accessibilityLabel="Next day"
+                   style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "flex-end" }}>
+          <Icon name="chevronRight" size={18} color={color.muted} />
+        </Pressable>
+      </View>
+      <View style={{ flexDirection: "row" }}>
+        <View style={{ width: 34 }}>
+          {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
+            <Text key={i} variant="meta" color={color.muted} style={{ height: ROW, fontSize: 11 }} maxFontSizeMultiplier={1.2}>
+              {hourLabel(START_HOUR + i)}
+            </Text>
+          ))}
+        </View>
+        <View style={{ flex: 1, height: (END_HOUR - START_HOUR + 1) * ROW }}>
+          {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
+            <View key={i} style={{ position: "absolute", top: i * ROW + 7, left: 0, right: 0, height: 1, backgroundColor: color.hairline }} />
+          ))}
+          {placed.map((b) => {
+            const top = ((b.start.getHours() + b.start.getMinutes() / 60) - START_HOUR) * ROW + 7;
+            const height = Math.max(30, (minutesBetween(b.start, b.end) / 60) * ROW - 2);
+            if (top + height < 0 || top > (END_HOUR - START_HOUR + 1) * ROW) return null;
+            const conflict = b.cols > 1 && b.kind !== "open";
+            const style = b.kind === "open" ? { backgroundColor: "transparent", borderStyle: "dashed" as const, borderColor: color.amberLight }
+              : b.kind === "protected" ? { backgroundColor: "transparent", borderStyle: "dashed" as const, borderColor: color.amber }
+              : b.kind === "calendar" ? { backgroundColor: color.white, borderColor: color.border }
+              : { backgroundColor: color.white, borderColor: "rgba(184,119,42,0.4)" };
+            const tag = b.item?.area_id ? toTag(areas[b.item.area_id]) : undefined;
+            return (
+              <Pressable key={b.key} onPress={() => setSelected(b)} accessibilityRole="button"
+                         accessibilityLabel={`${b.title}, ${clock(b.start)} to ${clock(b.end)}${conflict ? ", overlaps" : ""}`}
+                         style={{ position: "absolute", top, height, left: `${(b.col / b.cols) * 100}%`, width: `${100 / b.cols}%`,
+                                  paddingHorizontal: 2 }}>
+                <View style={[{ flex: 1, borderRadius: 9, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4, overflow: "hidden" }, style,
+                              conflict && { backgroundColor: color.conflict, borderColor: color.conflictBorder }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Text variant="metaStrong" numberOfLines={1} style={{ flexShrink: 1 }}
+                          color={b.kind === "open" ? color.amberText : color.ink}>{b.title}</Text>
+                    {tag && b.cols <= 2 && <TagChip tag={tag} size="sm" />}
+                  </View>
+                  {b.cols === 1 && height > 34 && <Text variant="meta" color={color.muted} numberOfLines={1} style={{ fontSize: 11 }}>{b.sub}</Text>}
+                </View>
+              </Pressable>
+            );
+          })}
+          {isToday && today.getHours() >= START_HOUR && today.getHours() <= END_HOUR && (
+            <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, height: 2, backgroundColor: color.amber,
+                                                top: ((today.getHours() + today.getMinutes() / 60) - START_HOUR) * ROW + 6 }} />
+          )}
+        </View>
+      </View>
+      {dayTasks.length > 0 && (
+        <View>
+          <Text variant="eyebrow" color={color.muted} style={{ marginBottom: 6 }}>Also on this day</Text>
+          <Card padding="list">
+            {dayTasks.map((t) => (
+              <View key={t.id} style={{ flexDirection: "row", gap: 10, paddingVertical: 10, paddingHorizontal: space.sm }}>
+                <Text variant="meta" color={color.muted} style={{ width: 52 }}>{t.due_on === iso(date) ? "Due" : "Focus"}</Text>
+                <Text variant="bodyStrong" style={{ flex: 1, textDecorationLine: t.completed_at ? "line-through" : "none" }}
+                      color={t.completed_at ? color.muted : color.ink}>{t.title}</Text>
+              </View>
+            ))}
+          </Card>
+        </View>
+      )}
+      <Text variant="meta" color={color.muted}>Overlapping items sit side by side. Tap one for its full title and actions.</Text>
+    </>
+  );
+
+  // ── Week ────────────────────────────────────────────────────────────────────
+  const weekStart = startOfWeek(date);
+  const selectedItems = dayItems(date);
+  const selectedTasks = (data?.tasks ?? []).filter((t) => (t.focus_on ?? t.due_on) === iso(date));
+  const weekView = (
+    <>
+      <View style={{ flexDirection: "row", gap: 4 }}>
+        {Array.from({ length: 7 }, (_, i) => {
+          const d = addDays(weekStart, i);
+          const active = iso(d) === iso(date);
+          const has = dayItems(d).length > 0 || (data?.tasks ?? []).some((t) => (t.focus_on ?? t.due_on) === iso(d));
+          return (
+            <Pressable key={i} onPress={() => setDate(d)} accessibilityRole="button" accessibilityState={{ selected: active }}
+                       accessibilityLabel={d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                       style={{ flex: 1, alignItems: "center", paddingVertical: 8, borderRadius: 12, gap: 2,
+                                backgroundColor: active ? color.ink : "transparent" }}>
+              <Text variant="meta" color={active ? color.onInkMuted : color.muted}>{d.toLocaleDateString("en-US", { weekday: "short" })}</Text>
+              <Text variant="bodyStrong" color={active ? color.onInk : color.ink}>{d.getDate()}</Text>
+              <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: has ? (active ? color.amberLight : color.amber) : "transparent" }} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text variant="section" accessibilityRole="header">{date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}</Text>
+      <Card padding="list">
+        {selectedItems.length + selectedTasks.length === 0 && (
+          <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing scheduled yet — wide open.</Text>
+        )}
+        {selectedItems.map((i) => (
+          <Pressable key={i.id} onPress={() => setSelected({ key: i.id, kind: i.kind, title: titleOf(i), item: i, start: new Date(i.starts_at),
+                                                             end: new Date(i.ends_at), sub: "" })}
+                     style={{ flexDirection: "row", gap: 10, paddingVertical: 10, paddingHorizontal: space.sm }} accessibilityRole="button">
+            <Text variant="meta" color={color.muted} style={{ width: 52 }}>{i.all_day ? "All day" : clock(i.starts_at)}</Text>
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong">{titleOf(i)}</Text>
+              <Text variant="meta" color={color.muted}>{i.kind === "calendar" ? "Synced" : i.kind === "protected" ? "No auto-suggest" : "Rhythm"}</Text>
+            </View>
+          </Pressable>
+        ))}
+        {selectedTasks.map((t) => (
+          <View key={t.id} style={{ flexDirection: "row", gap: 10, paddingVertical: 10, paddingHorizontal: space.sm }}>
+            <Text variant="meta" color={color.muted} style={{ width: 52 }}>All day</Text>
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong">{t.title}</Text>
+              <Text variant="meta" color={color.muted}>{t.due_on === iso(date) ? "Due" : "Task"}</Text>
+            </View>
+          </View>
+        ))}
+      </Card>
+    </>
+  );
+
+  // ── Month ───────────────────────────────────────────────────────────────────
+  const monthFirst = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthDays = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const states = Object.fromEntries((data?.days ?? []).map((d) => [d.date, d]));
+  const stateOf = (d: string): CapacityDisplay | null => {
+    const s = states[d];
+    if (!s?.status) return null;
+    if (s.status === "assessed" && s.state) return s.state as CapacityDisplay;
+    return s.status === "uncertain" ? "Uncertain" : null;
+  };
+  const selectedState = stateOf(iso(date));
+  const monthView = (
+    <>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Pressable onPress={() => setDate(new Date(date.getFullYear(), date.getMonth() - 1, 1))} accessibilityRole="button"
+                   accessibilityLabel="Previous month" style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center" }}>
+          <Icon name="chevronLeft" size={18} color={color.muted} />
+        </Pressable>
+        <Text variant="bodyStrong" accessibilityRole="header">{date.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</Text>
+        <Pressable onPress={() => setDate(new Date(date.getFullYear(), date.getMonth() + 1, 1))} accessibilityRole="button"
+                   accessibilityLabel="Next month" style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "flex-end" }}>
+          <Icon name="chevronRight" size={18} color={color.muted} />
+        </Pressable>
+      </View>
+      <View>
+        <View style={{ flexDirection: "row" }}>
+          {["S", "M", "T", "W", "T", "F", "S"].map((w, i) => <Text key={i} variant="meta" color={color.muted} style={{ flex: 1, textAlign: "center" }}>{w}</Text>)}
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
+          {Array.from({ length: monthFirst.getDay() }, (_, i) => <View key={`p${i}`} style={{ width: `${100 / 7}%` }} />)}
+          {Array.from({ length: monthDays }, (_, i) => {
+            const d = new Date(date.getFullYear(), date.getMonth(), i + 1);
+            const s = stateOf(iso(d));
+            const isSel = iso(d) === iso(date), isTod = iso(d) === iso(today);
+            return (
+              <View key={i} style={{ width: `${100 / 7}%`, padding: 2 }}>
+                <Pressable onPress={() => setDate(d)} accessibilityRole="button" accessibilityState={{ selected: isSel }}
+                           accessibilityLabel={`${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })}${s ? `, ${s}` : ""}`}
+                           style={{ height: 44, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 3,
+                                    backgroundColor: isSel ? color.amberSoft : color.surface,
+                                    borderWidth: isTod ? 1.5 : 1, borderColor: isTod ? color.amber : isSel ? "rgba(184,119,42,0.4)" : "rgba(27,27,29,0.07)" }}>
+                  <Text variant="metaStrong" color={isTod ? color.amberText : color.ink}>{i + 1}</Text>
+                  {s && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: stateColor[s].base }} />}
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+      <Card>
+        <Text variant="eyebrow" color={color.muted} style={{ marginBottom: space.xs }}>
+          {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </Text>
+        {selectedState ? <StateBadge state={selectedState} size="sm" />
+          : <Text variant="meta" color={color.muted}>No capacity read for this day.</Text>}
+        <Text style={{ marginTop: space.xs }}>
+          {selectedItems.length ? `${selectedItems.length} on the calendar.` : "Nothing on the calendar."}
+        </Text>
+        <Button label="Open full day" variant="ghost" onPress={() => setView("day")} style={{ marginTop: space.xs }} />
+      </Card>
+    </>
+  );
+
+  // ── Detail sheet actions per kind ───────────────────────────────────────────
+  const sel = selected;
+  const shift = (mins: number) => sel?.item && run(() => updateBlock(sel.item!.id, {
+    starts_at: new Date(+new Date(sel.item!.starts_at) + mins * 60000).toISOString(),
+    ends_at: new Date(+new Date(sel.item!.ends_at) + mins * 60000).toISOString(),
+  }));
+  const kindLabel = sel ? ({ calendar: "Synced event", event: "Rhythm commitment", commitment: "Rhythm commitment", routine: "Routine",
+    habit: "Habit", protected: "Protected time", task: "Task", open: "Open window", reset: "Reset", focus: "Focus" } as Record<string, string>)[sel.kind] : "";
+
   return (
     <Screen
-      header={
-        <ScreenHeader
-          title="Plan"
-          right={
-            <SegmentedControl<View_>
-              value={view}
-              onChange={setView}
-              options={[{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }]}
-            />
-          }
-        />
-      }
-      overlay={<FAB onPress={() => setSheet(true)} accessibilityLabel="Add commitment" />}
+      gap={space.md}
+      header={<ScreenHeader title="Plan" right={
+        <SegmentedControl<View_> value={view} onChange={setView}
+                                 options={[{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }]} />} />}
+      overlay={<FAB onPress={() => { setNewStart(null); setNewTitle(""); setAdding(true); }} accessibilityLabel="Add commitment" />}
     >
-      <ShellNote>
-        {view === "day" && "Day timeline: synced events (read-only), Rhythm blocks, tasks, protected time and open windows, with overlaps side by side."}
-        {view === "week" && "Week strip with the selected day's events below."}
-        {view === "month" && "Month grid with a capacity-state dot per day and a day summary."}
-      </ShellNote>
-      <BottomSheet visible={sheet} onClose={() => setSheet(false)} title="Add commitment">
-        <TextField placeholder="What is it?" accessibilityLabel="Commitment title" />
-        <Text variant="meta" color={color.muted} style={{ marginTop: space.sm }}>Time picker and save arrive with Plan.</Text>
-        <Button label="Cancel" variant="secondary" fullWidth onPress={() => setSheet(false)} style={{ marginTop: space.md }} />
+      {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
+      {view === "day" ? dayView : view === "week" ? weekView : monthView}
+
+      <BottomSheet visible={!!sel} onClose={() => setSelected(null)} kicker={kindLabel} title={sel?.title}>
+        {sel && (
+          <View style={{ gap: space.xs }}>
+            <Text variant="meta" color={color.muted}>
+              {clockAmPm(sel.start)} – {clockAmPm(sel.end)}
+            </Text>
+            <Text style={{ marginBottom: space.sm }}>
+              {sel.kind === "calendar" ? "Synced — editing happens in your calendar app."
+                : sel.kind === "open" ? "Nothing is scheduled here yet."
+                : sel.kind === "protected" ? "Reserved — nothing gets auto-suggested here."
+                : sel.kind === "task" ? "A task you scheduled here."
+                : "Created in Rhythm — yours to move or remove."}
+            </Text>
+            {(sel.kind === "event" || sel.kind === "commitment" || sel.kind === "task") && sel.item?.editable && (
+              <View style={{ flexDirection: "row", gap: space.xs }}>
+                <Button label="− 30 min" variant="secondary" style={{ flex: 1 }} onPress={() => shift(-30)} />
+                <Button label="+ 30 min" variant="secondary" style={{ flex: 1 }} onPress={() => shift(30)} />
+              </View>
+            )}
+            {sel.kind === "task" && sel.item?.task_id && (
+              <>
+                <Button label="Mark complete" onPress={() => run(async () => {
+                  await setCompleted(sel.item!.task_id!, true);
+                  await updateBlock(sel.item!.id, { completed: true });
+                })} />
+                <Button label="Move to tomorrow" variant="secondary" onPress={() => run(async () => {
+                  await updateTask(sel.item!.task_id!, { focus_on: iso(addDays(date, 1)) });
+                  await deleteBlock(sel.item!.id);
+                })} />
+              </>
+            )}
+            {(sel.kind === "event" || sel.kind === "commitment") && sel.item?.editable && (
+              <Button label="Delete" variant="ghost" onPress={() => run(() => deleteBlock(sel.item!.id))} style={{ alignSelf: "center" }} />
+            )}
+            {sel.kind === "protected" && sel.item?.editable && (
+              <Button label="Remove protection" variant="secondary" onPress={() => run(() => deleteBlock(sel.item!.id))} />
+            )}
+            {sel.kind === "open" && sel.window && (openPriorities.length ? openPriorities.map((t) => (
+              <Button key={t.id} label={`Schedule ${t.title} here`} variant="secondary" onPress={() => run(() => {
+                const s = new Date(sel.window!.starts_at);
+                const windowEnd = new Date(sel.window!.ends_at);
+                const length = Math.min(minutesBetween(s, windowEnd), t.estimate_minutes ?? 60);
+                return createBlock({ kind: "task", task_id: t.id, starts_at: s.toISOString(),
+                                     ends_at: new Date(+s + length * 60000).toISOString() });
+              })} />
+            )) : <Text variant="meta" color={color.muted}>Add a priority on Today to schedule it here.</Text>)}
+            <Button label="Close" variant="ghost" onPress={() => setSelected(null)} style={{ alignSelf: "center" }} />
+          </View>
+        )}
+      </BottomSheet>
+
+      <BottomSheet visible={adding} onClose={() => setAdding(false)} title="Add commitment">
+        <TextField value={newTitle} onChangeText={setNewTitle} placeholder="What is it?" accessibilityLabel="Commitment" autoFocus />
+        <Text variant="eyebrow" color={color.muted} style={{ marginTop: space.md, marginBottom: space.xs }}>
+          When · {date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {startOptions.map((d) => {
+            const on = newStart && +newStart === +d;
+            return (
+              <Pressable key={+d} onPress={() => setNewStart(d)} accessibilityRole="radio" accessibilityState={{ selected: !!on }}
+                         style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.control, borderWidth: 1,
+                                  borderColor: on ? color.ink : color.borderStrong, backgroundColor: on ? color.ink : "transparent" }}>
+                <Text variant="metaStrong" color={on ? color.onInk : color.ink}>{clockAmPm(d)}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text variant="eyebrow" color={color.muted} style={{ marginTop: space.md, marginBottom: space.xs }}>How long</Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {[30, 60, 90].map((m) => (
+            <Pressable key={m} onPress={() => setNewMinutes(m)} accessibilityRole="radio" accessibilityState={{ selected: newMinutes === m }}
+                       style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.control, borderWidth: 1,
+                                borderColor: newMinutes === m ? color.ink : color.borderStrong,
+                                backgroundColor: newMinutes === m ? color.ink : "transparent" }}>
+              <Text variant="metaStrong" color={newMinutes === m ? color.onInk : color.ink}>{m} min</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Button label="Add" fullWidth disabled={!newTitle.trim() || !newStart} style={{ marginTop: space.lg }}
+                onPress={() => { setAdding(false); run(() => createBlock({ kind: "event", title: newTitle.trim(),
+                  starts_at: newStart!.toISOString(), ends_at: new Date(+newStart! + newMinutes * 60000).toISOString() })); }} />
+        <Button label="Cancel" variant="secondary" fullWidth onPress={() => setAdding(false)} style={{ marginTop: space.xs }} />
       </BottomSheet>
     </Screen>
   );
