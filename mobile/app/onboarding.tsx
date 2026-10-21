@@ -10,11 +10,14 @@ import {
   getConnections,
   getPlan,
   getToday,
+  listAreas,
+  listTasks,
   makePriority,
   updateMe,
   type ConnectionStatus,
 } from "../src/api/endpoints";
 import type { CheckinInput, Demand, Level, Today } from "../src/api/types";
+import { ONBOARDING_STEPS, resumeIndex } from "../src/auth/routing";
 import { useSession } from "../src/auth/SessionProvider";
 import {
   Button,
@@ -44,9 +47,12 @@ import { iso } from "../src/lib/dates";
 
 // The Onboarding board after sign-in: nine steps, each saving what it collects.
 const EYEBROWS = ["About you", "Your world", "Your days", "What matters", "On your mind",
-  "Your capacity", "Your capacity", "Your systems", "Your first day"];
+  "Your capacity", "Your systems", "Your first day"];
 const STEPS = EYEBROWS.length;
-const [NAME, WORLD, DAYS, MATTERS, DUMP, CAP_A, CAP_B, CONNECT, FIRST] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+const [NAME, WORLD, DAYS, MATTERS, DUMP, CAP, CONNECT, FIRST] = [0, 1, 2, 3, 4, 5, 6, 7];
+// When a choice opens the next question in the same section, the choice stays
+// visible for a moment first, so the move doesn't feel abrupt.
+const ADVANCE_MS = 450;
 const SKIPPABLE = new Set([DAYS, MATTERS, DUMP, CONNECT]);
 
 type Five = [string, string, string, string, string];
@@ -95,7 +101,7 @@ function Hint({ children }: { children: React.ReactNode }) {
 
 export default function Onboarding() {
   const { profile, setProfile } = useSession();
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => resumeIndex(profile?.onboarding_step));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,10 +127,9 @@ export default function Onboarding() {
   // Capacity → check-ins
   const [energy, setEnergy] = useState<number | null>(null);
   const [demand, setDemand] = useState<number | null>(null);
-  const [energyOpen, setEnergyOpen] = useState(true);
+  const [capOpen, setCapOpen] = useState(0); // 0 energy, 1 demand, 2 rested, 3 affecting
   const [rested, setRested] = useState<number | null>(null);
   const [affecting, setAffecting] = useState<string[]>([]);
-  const [restedOpen, setRestedOpen] = useState(true);
 
   // Systems + first day
   const [conns, setConns] = useState<Record<string, ConnectionStatus>>({});
@@ -132,6 +137,26 @@ export default function Onboarding() {
   const [today, setToday] = useState<Today | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  // Resuming: bring back what was already saved (tags, "on your mind" tasks, picked priorities).
+  useEffect(() => {
+    (async () => {
+      const [areas, tasks] = await Promise.all([listAreas(), listTasks()]).catch(() => [[], []] as const);
+      setTags(areas.filter((a) => a.color_family).map((a) => ({ label: a.name, color: a.color_family as PastelKey, id: a.id })));
+      const mine = tasks.filter((t) => t.source === "brain_dump" && !t.completed_at);
+      setDump(mine.map((t) => ({ key: t.id, label: t.title, id: t.id })));
+      const today = iso(new Date());
+      setPicked(new Set(mine.filter((t) => t.priority_rank !== null && t.focus_on === today).map((t) => t.id)));
+    })();
+  }, []);
+
+  // Remember where the person is, so leaving and coming back resumes here.
+  useEffect(() => {
+    if (profile && profile.onboarding_step !== ONBOARDING_STEPS[step]) {
+      updateMe({ onboarding_step: ONBOARDING_STEPS[step] }).then(setProfile).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const answers = { life_shape: lifeShape, help, responsibilities: resp, protected_time: protectedTime, rest_pattern: restPattern };
 
@@ -150,16 +175,17 @@ export default function Onboarding() {
     if (plan.open_windows) parts.push(`${plan.open_windows.length || "no"} open window${plan.open_windows.length === 1 ? "" : "s"} left`);
     if (protectedTime && PROTECTED_WORDS[protectedTime]) parts.push(`${PROTECTED_WORDS[protectedTime]} protected`);
     setSummary(parts.length
-      ? `${parts.join(", ").replace(/, ([^,]*)$/, ", and $1")} — based on what you just told us.`
+      ? `${parts.join(", ").replace(/, ([^,]*)$/, ", and $1")}, based on what you just told us.`
       : "Rhythm will fill in your day as you check in and connect a calendar.");
   };
 
   useEffect(() => {
-    if (step === CAP_B) getToday().then(setToday).catch(() => {});
     if (step === CONNECT) refreshConnections();
     if (step === FIRST) loadFirstDay().catch(() => setSummary(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
+
+  const later = (fn: () => void) => setTimeout(fn, ADVANCE_MS);
 
   // Saves what this step collected. Skipping saves nothing.
   const save = async () => {
@@ -177,12 +203,13 @@ export default function Onboarding() {
       }
       setDump(next);
     }
-    if (step === CAP_A && (energy || demand)) {
-      await createCheckin({ ...(energy ? { energy: LEVELS[energy - 1] } : {}),
-                            ...(demand ? { perceived_demand: DEMANDS[demand - 1] } : {}) });
-    }
-    if (step === CAP_B && rested) {
-      await createCheckin({ rested: LEVELS[rested - 1], context_tags: affecting.filter((a) => a !== "none") as CheckinInput["context_tags"] });
+    if (step === CAP && (energy || demand || rested)) {
+      await createCheckin({
+        ...(energy ? { energy: LEVELS[energy - 1] } : {}),
+        ...(demand ? { perceived_demand: DEMANDS[demand - 1] } : {}),
+        ...(rested ? { rested: LEVELS[rested - 1] } : {}),
+        context_tags: affecting.filter((a) => a !== "none") as CheckinInput["context_tags"],
+      });
     }
     if (step === CONNECT && titlesOk !== !!profile?.ai_task_titles_consented) {
       setProfile(await updateMe({ ai_task_titles_consented: titlesOk }));
@@ -244,9 +271,9 @@ export default function Onboarding() {
             {worldOpen === 0 ? (
               <>
                 <Question>What does your life look like right now?</Question>
-                <Hint>Pick what's closest — there's no wrong shape.</Hint>
+                <Hint>Pick what's closest. There's no wrong shape.</Hint>
                 {LIFE_SHAPES.map(([k, l]) => (
-                  <OptionRow key={k} label={l} selected={lifeShape === k} onPress={() => { setLifeShape(k); setWorldOpen(1); }} />
+                  <OptionRow key={k} label={l} selected={lifeShape === k} onPress={() => { setLifeShape(k); later(() => setWorldOpen(1)); }} />
                 ))}
               </>
             ) : (
@@ -265,7 +292,7 @@ export default function Onboarding() {
         return (
           <>
             <Question>What shapes your days?</Question>
-            <Hint>Light touch — you can add detail anytime later.</Hint>
+            <Hint>Light touch, you can add detail anytime later.</Hint>
             {daysOpen > 0 && <CollapsedQuestionRow question="Recurring responsibilities"
                                                    answer={resp.length ? `${resp.length} added` : "None added"} onPress={() => setDaysOpen(0)} />}
             {daysOpen === 0 && (
@@ -298,7 +325,7 @@ export default function Onboarding() {
               <View style={{ marginTop: space.md }}>
                 <Text variant="bodyStrong" style={{ marginBottom: space.xs }}>When do you protect time for yourself?</Text>
                 {PROTECTED.map(([k, l]) => (
-                  <OptionRow key={k} label={l} selected={protectedTime === k} onPress={() => { setProtectedTime(k); setDaysOpen(2); }} />
+                  <OptionRow key={k} label={l} selected={protectedTime === k} onPress={() => { setProtectedTime(k); later(() => setDaysOpen(2)); }} />
                 ))}
               </View>
             )}
@@ -314,7 +341,7 @@ export default function Onboarding() {
         return (
           <>
             <Question>What do you want to make space for?</Question>
-            <Hint>Your own categories — not just Work and School. These become your tags everywhere in Rhythm.</Hint>
+            <Hint>Your own categories, not just Work and School. These become your tags everywhere in Rhythm.</Hint>
             <View style={styles.chips}>
               {tags.map((t) => (
                 <TagChip key={t.label} tag={{ id: t.label, name: t.label, color: t.color }} onRemove={async () => {
@@ -343,7 +370,7 @@ export default function Onboarding() {
         return (
           <>
             <Question>Get it all out.</Question>
-            <Hint>Tasks, deadlines, things on your mind — add them one at a time. Sort them later.</Hint>
+            <Hint>Tasks, deadlines, things on your mind. Add them one at a time and sort them later.</Hint>
             <View style={styles.inputRow}>
               <TextField value={dumpInput} onChangeText={setDumpInput} placeholder="Type something and add it" style={{ flex: 1 }}
                          accessibilityLabel="Something on your mind" returnKeyType="done" blurOnSubmit={false}
@@ -351,8 +378,8 @@ export default function Onboarding() {
               <Button label="Add" size="sm" disabled={!dumpInput.trim()}
                       onPress={() => { setDump((x) => [...x, { key: `${Date.now()}`, label: dumpInput.trim() }]); setDumpInput(""); }} />
             </View>
+            {dump.length > 0 && (
             <Card padding="list" style={{ marginTop: space.sm }}>
-              {dump.length === 0 && <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing yet — add the first thing on your mind.</Text>}
               {dump.map((d) => (
                 <View key={d.key} style={styles.dumpRow}>
                   <Text style={{ flex: 1 }}>{d.label}</Text>
@@ -363,76 +390,58 @@ export default function Onboarding() {
                 </View>
               ))}
             </Card>
-            <Text variant="meta" color={color.muted} style={{ marginTop: space.xs }}>Effort and timing are optional — Rhythm won't invent them for you.</Text>
+            )}
+            <Text variant="meta" color={color.muted} style={{ marginTop: space.xs }}>Effort and timing are optional. Rhythm won't invent them for you.</Text>
           </>
         );
-      case CAP_A:
+      case CAP: {
+        const qs: [string, number | null, (v: number) => void, typeof ENERGY_WORDS][] = [
+          ["How much energy do you have today?", energy, setEnergy, ENERGY_WORDS],
+          ["How heavy does today feel?", demand, setDemand, DEMAND_WORDS],
+          ["How rested do you feel?", rested, setRested, RESTED_WORDS],
+        ];
         return (
           <>
-            <Hint>Answer about your experience — Rhythm works out the state.</Hint>
-            {energyOpen ? (
-              <View>
-                <Question>How much energy do you have today?</Question>
-                <View style={{ marginTop: space.xs }}>
-                  <ScaleSelector value={energy} onChange={(v) => { setEnergy(v); setEnergyOpen(false); }} stepLabels={ENERGY_WORDS}
-                                 accessibilityLabel="How much energy do you have today?" />
-                </View>
-              </View>
-            ) : (
-              <>
-                <CollapsedQuestionRow question="How much energy do you have today?"
-                                      answer={energy ? `${energy} of 5 — ${ENERGY_WORDS[energy - 1]}` : ""} onPress={() => setEnergyOpen(true)} />
-                <View style={{ marginTop: space.md }}>
-                  <Question>How heavy does today feel?</Question>
+            <Hint>Answer about your experience. Rhythm works out the state.</Hint>
+            {qs.map(([q, value, set, words], i) => (
+              i !== capOpen && value ? (
+                <CollapsedQuestionRow key={q} question={q} answer={`${value} of 5, ${words[value - 1]}`} onPress={() => setCapOpen(i)} />
+              ) : i === capOpen ? (
+                <View key={q} style={{ marginTop: i ? space.md : 0 }}>
+                  <Question>{q}</Question>
                   <View style={{ marginTop: space.xs }}>
-                    <ScaleSelector value={demand} onChange={setDemand} stepLabels={DEMAND_WORDS} accessibilityLabel="How heavy does today feel?" />
+                    <ScaleSelector value={value} stepLabels={words} accessibilityLabel={q}
+                                   onChange={(v) => {
+                                     set(v);
+                                     // Next: the first question still unanswered, else "anything affecting".
+                                     const next = qs.findIndex(([, val], j) => j !== i && !val);
+                                     later(() => setCapOpen((o) => (o === i ? (next === -1 ? 3 : next) : o)));
+                                   }} />
                   </View>
                 </View>
-              </>
-            )}
-          </>
-        );
-      case CAP_B:
-        return (
-          <>
-            {restedOpen ? (
-              <View>
-                <Question>How rested do you feel?</Question>
-                <View style={{ marginTop: space.xs }}>
-                  <ScaleSelector value={rested} onChange={(v) => { setRested(v); setRestedOpen(false); }} stepLabels={RESTED_WORDS}
-                                 accessibilityLabel="How rested do you feel?" />
-                </View>
+              ) : null
+            ))}
+            {capOpen >= 3 && (
+              <View style={{ marginTop: space.md }}>
+                <Text variant="bodyStrong">Anything affecting your energy today?</Text>
+                <Hint>Optional, pick as many as apply.</Hint>
+                {AFFECTING.map(([k, l]) => (
+                  <OptionRow key={k} multi label={l} selected={affecting.includes(k)}
+                             onPress={() => setAffecting((a) => (k === "none" ? (a.includes("none") ? [] : ["none"])
+                               : a.includes(k) ? a.filter((x) => x !== k) : [...a.filter((x) => x !== "none"), k]))} />
+                ))}
               </View>
-            ) : (
-              <>
-                <CollapsedQuestionRow question="How rested do you feel?" answer={rested ? `${rested} of 5 — ${RESTED_WORDS[rested - 1]}` : ""}
-                                      onPress={() => setRestedOpen(true)} />
-                <View style={{ marginTop: space.md }}>
-                  <Text variant="bodyStrong">Anything affecting your energy today?</Text>
-                  <Hint>Optional — pick as many as apply.</Hint>
-                  {AFFECTING.map(([k, l]) => (
-                    <OptionRow key={k} multi label={l} selected={affecting.includes(k)}
-                               onPress={() => setAffecting((a) => (k === "none" ? (a.includes("none") ? [] : ["none"])
-                                 : a.includes(k) ? a.filter((x) => x !== k) : [...a.filter((x) => x !== "none"), k]))} />
-                  ))}
-                </View>
-              </>
-            )}
-            {capBadge && (
-              <Card style={{ marginTop: space.md }}>
-                <Eyebrow style={{ marginBottom: space.xs }}>Based on your check-in</Eyebrow>
-                {capBadge}
-              </Card>
             )}
           </>
         );
+      }
       case CONNECT: {
         const row = (p: string) => conns[p];
         const on = (c?: ConnectionStatus) => !!c && c.state !== "off" && c.state !== "unavailable";
         return (
           <>
             <Question>Connect what you'd like</Question>
-            <Hint>These stay connected until you disconnect them — not a one-time import. Optional, and skippable.</Hint>
+            <Hint>These stay connected until you disconnect them, not a one-time import. Optional, and skippable.</Hint>
             <View style={{ gap: space.xs }}>
               <ConnectionRow name="Oura" detail="Readiness feeds your capacity view, synced ongoing and attributed to Oura."
                              action={on(row("oura")) ? { label: "Connected", variant: "secondary", disabled: true }
@@ -456,19 +465,19 @@ export default function Onboarding() {
       case FIRST:
         return (
           <>
-            <Question>Your first day.</Question>
-            <Hint>Built from what you just shared.</Hint>
+            <Question>A day that works with you.</Question>
+            <Hint>Let's start with what matters most to you today.</Hint>
             {capBadge ? (
               <View style={{ marginBottom: space.md }}>{capBadge}</View>
             ) : (
               <Card style={{ marginBottom: space.md }}>
-                <Text>Not enough to assess capacity yet — that's fine, Rhythm can still help you plan today.</Text>
+                <Text>Not enough to assess capacity yet. That's fine, Rhythm can still help you plan today.</Text>
               </Card>
             )}
             <Text variant="bodyStrong" style={{ marginBottom: space.xs }}>Choose today's priorities</Text>
             <Card padding="list" style={{ marginBottom: space.md }}>
               {dump.filter((d) => d.id).length === 0 && (
-                <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing to pick from yet — that's okay.</Text>
+                <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing to pick from yet, that's okay.</Text>
               )}
               {dump.filter((d) => d.id).map((d) => (
                 <ChecklistRow key={d.id} label={d.label} shape="square" checked={picked.has(d.id!)} onToggle={() => togglePriority(d.id!)} />

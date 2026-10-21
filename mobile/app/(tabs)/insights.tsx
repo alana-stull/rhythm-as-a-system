@@ -1,12 +1,14 @@
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, useWindowDimensions, View } from "react-native";
 import { getDayDetail, getInsights, type DayDetail, type Insights as InsightsData } from "../../src/api/endpoints";
 import {
   BottomSheet,
   Button,
   Card,
   CapacityDisplay,
+  Icon,
+  MonthGrid,
   Screen,
   ScreenHeader,
   SectionHeader,
@@ -14,194 +16,300 @@ import {
   StateBadge,
   Text,
   color,
+  minTouch,
   pastel,
   radius,
   space,
   stateColor,
 } from "../../src/design";
-import { addDays, fromIso, iso, startOfWeek } from "../../src/lib/dates";
+import { TrendChart } from "../../src/insights/TrendChart";
+import { addDays, fromIso, iso } from "../../src/lib/dates";
 
-const SHORT: Record<string, string> = { Aligned: "Align", Balanced: "Bal", Strained: "Strain", Overloaded: "Over" };
-const WEEK_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
+type Range = "1w" | "1m" | "3m";
+const RANGE_DAYS: Record<Range, number> = { "1w": 7, "1m": 30, "3m": 90 };
+const RANGE_TITLE: Record<Range, string> = {
+  "1w": "Your week at a glance", "1m": "Your month at a glance", "3m": "Your last three months at a glance",
+};
 
-function display(d?: { status: string; state: string | null }): CapacityDisplay | null {
-  if (!d) return null;
-  if (d.status === "assessed" && d.state) return d.state as CapacityDisplay;
-  return d.status === "uncertain" ? "Uncertain" : null;
-}
+const LEVEL: Record<string, string> = { very_low: "very low", low: "low", moderate: "moderate", high: "high", very_high: "very high" };
+const RESTED: Record<string, string> = { very_low: "not at all", low: "a little", moderate: "fairly", high: "well rested", very_high: "fully rested" };
+const DEMAND: Record<string, string> = { very_light: "very light", light: "light", moderate: "moderate", heavy: "heavy", very_heavy: "very heavy" };
 
 function hours(min: number) {
-  const h = min / 60;
-  return `${Number.isInteger(h) ? h : h.toFixed(1)}h`;
+  const h = Math.floor(min / 60), m = Math.round(min % 60);
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function display(r: { status: string; state: string | null } | null | undefined): CapacityDisplay | null {
+  if (!r) return null;
+  if (r.status === "assessed" && r.state) return r.state as CapacityDisplay;
+  return r.status === "uncertain" ? "Uncertain" : null;
 }
 
 export default function Insights() {
-  const [range, setRange] = useState<"week" | "month">("week");
-  const [data, setData] = useState<InsightsData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<Range>("1m");
+  const [trend, setTrend] = useState<InsightsData | null>(null);
+  const [month, setMonth] = useState(() => new Date());
+  const [monthData, setMonthData] = useState<InsightsData | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<DayDetail | null>(null);
-
-  const today = new Date();
-  const weekStart = startOfWeek(today);
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const [start, end] = range === "week" ? [weekStart, addDays(weekStart, 6)] : [monthStart, monthEnd];
+  const [about, setAbout] = useState(false);
+  const { width, fontScale } = useWindowDimensions();
+  const [error, setError] = useState<string | null>(null);
+  const today = iso(new Date());
 
   const load = useCallback(async () => {
     try {
-      setData(await getInsights(iso(start), iso(end)));
+      const end = new Date();
+      const first = new Date(month.getFullYear(), month.getMonth(), 1);
+      const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+      const [t, m] = await Promise.all([
+        getInsights(iso(addDays(end, -(RANGE_DAYS[range] - 1))), iso(end)),
+        getInsights(iso(first), iso(last)),
+      ]);
+      setTrend(t);
+      setMonthData(m);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load insights.");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range]);
+  }, [range, month]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const byDate = Object.fromEntries((data?.days ?? []).map((d) => [d.date, d]));
   const open = async (date: string) => {
-    if (!byDate[date]) return;
-    try { setDetail(await getDayDetail(date)); } catch (e) { setError(e instanceof Error ? e.message : "Couldn't load that day."); }
+    setSelected(date);
+    try {
+      setDetail(await getDayDetail(date));
+    } catch {
+      setDetail({ date, rhythm: null, basis: null, evidence: [], disagreements: [], interpretation: null,
+                  reading: null, calendar: null, checkins: [] });
+    }
   };
 
-  const maxMinutes = Math.max(1, ...(data?.where_time_went ?? []).map((t) => t.minutes));
+  const b = trend?.breakdown;
+  const top = b?.states.slice(0, 2) ?? [];
+  const other = (b?.states.slice(2) ?? []).reduce((n, s) => n + s.days, 0);
+  const monthByDate = Object.fromEntries((monthData?.days ?? []).map((d) => [d.date, d]));
+  const isCurrentMonth = month.getFullYear() === new Date().getFullYear() && month.getMonth() === new Date().getMonth();
 
   return (
     <Screen
       gap={space.lg}
       header={<ScreenHeader title="Insights" right={
-        <SegmentedControl value={range} onChange={setRange} options={[{ key: "week", label: "Week" }, { key: "month", label: "Month" }]} />} />}
+        <Pressable onPress={() => setAbout(true)} accessibilityRole="button" accessibilityLabel="About this data"
+                   hitSlop={6} style={{ minWidth: minTouch, minHeight: minTouch, alignItems: "flex-end", justifyContent: "center" }}>
+          <Icon name="info" size={20} color={color.muted} />
+        </Pressable>} />}
     >
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
 
-      {range === "week" ? (
-        <View>
-          <View style={{ flexDirection: "row", gap: 5 }}>
-            {Array.from({ length: 7 }, (_, i) => {
-              const date = iso(addDays(weekStart, i));
-              const s = display(byDate[date]);
-              const c = s ? stateColor[s] : null;
-              return (
-                <Pressable key={date} onPress={() => open(date)} disabled={!byDate[date]} accessibilityRole="button"
-                           accessibilityLabel={`${fromIso(date).toLocaleDateString("en-US", { weekday: "long" })}: ${s ?? "no read"}`}
-                           style={{ flex: 1, alignItems: "center", gap: 6 }}>
-                  <Text variant="meta" color={date === iso(today) ? color.amberText : color.muted}>{WEEK_LETTERS[i]}</Text>
-                  <View style={{ alignSelf: "stretch", height: 56, borderRadius: 10, alignItems: "center", justifyContent: "center",
-                                 backgroundColor: c ? c.soft : "transparent", borderWidth: c ? 0 : 1, borderStyle: "dashed",
-                                 borderColor: "rgba(27,27,29,0.2)" }}>
-                    <Text variant="tag" color={c ? c.text : color.muted} numberOfLines={1} maxFontSizeMultiplier={1.2}>
-                      {s ? (s === "Uncertain" ? "Unc." : SHORT[s]) : "—"}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text variant="meta" color={color.muted} style={{ marginTop: space.sm }}>
-            The state is always the headline — numbers are secondary, when available at all.
-          </Text>
+      <View>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} accessibilityRole="button"
+                     accessibilityLabel="Previous month" style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center" }}>
+            <Icon name="chevronLeft" size={18} color={color.muted} />
+          </Pressable>
+          <Text variant="section" accessibilityRole="header">{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</Text>
+          <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} accessibilityRole="button"
+                     accessibilityLabel="Next month" disabled={isCurrentMonth}
+                     style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "flex-end", opacity: isCurrentMonth ? 0.3 : 1 }}>
+            <Icon name="chevronRight" size={18} color={color.muted} />
+          </Pressable>
         </View>
-      ) : (
-        <View>
-          <View style={{ flexDirection: "row" }}>
-            {["S", "M", "T", "W", "T", "F", "S"].map((w, i) => (
-              <Text key={i} variant="meta" color={color.muted} style={{ flex: 1, textAlign: "center" }}>{w}</Text>
-            ))}
+        <MonthGrid
+          month={month}
+          today={today}
+          selected={selected}
+          onSelect={(d) => { if (d <= today) open(d); }}
+          marker={(d) => {
+            const day = monthByDate[d];
+            const s = display(day?.rhythm);
+            if (s) return <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: stateColor[s].base }} />;
+            if (day?.reading) return <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: color.muted }} />;
+            return null;
+          }}
+          label={(d) => {
+            const day = monthByDate[d];
+            const s = display(day?.rhythm);
+            return [s ? `Rhythm: ${s}` : "no Rhythm state",
+                    day?.reading?.readiness != null ? `Oura readiness ${Math.round(day.reading.readiness)}` : "no Oura reading"].join(", ");
+          }}
+        />
+        <View style={{ flexDirection: "row", gap: space.md, marginTop: space.xs }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color.ink }} />
+            <Text variant="meta" color={color.muted}>Rhythm state</Text>
           </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
-            {Array.from({ length: monthStart.getDay() }, (_, i) => <View key={`pad${i}`} style={{ width: `${100 / 7}%` }} />)}
-            {Array.from({ length: monthEnd.getDate() }, (_, i) => {
-              const date = iso(new Date(today.getFullYear(), today.getMonth(), i + 1));
-              const s = display(byDate[date]);
-              const isToday = date === iso(today);
-              return (
-                <View key={date} style={{ width: `${100 / 7}%`, padding: 2 }}>
-                  <Pressable onPress={() => open(date)} disabled={!byDate[date]} accessibilityRole="button"
-                             accessibilityLabel={`${fromIso(date).toLocaleDateString("en-US", { month: "long", day: "numeric" })}: ${s ?? "no read"}`}
-                             style={{ height: 44, borderRadius: 9, backgroundColor: color.surface, alignItems: "center", justifyContent: "center", gap: 3,
-                                      borderWidth: isToday ? 1.5 : 1, borderColor: isToday ? color.amber : "rgba(27,27,29,0.07)" }}>
-                    <Text variant="metaStrong" color={isToday ? color.amberText : color.ink}>{i + 1}</Text>
-                    {s && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: stateColor[s].base }} />}
-                  </Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: color.muted }} />
+            <Text variant="meta" color={color.muted}>Oura reading only</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={{ gap: space.sm }}>
+        {/* Heading and range on one row; at larger text sizes or on narrow phones the control drops below. */}
+        <View style={[{ flexDirection: "row", alignItems: "center", gap: space.sm },
+                      (fontScale > 1.3 || width < 360) && { flexDirection: "column", alignItems: "flex-start" }]}>
+          <Text variant="section" accessibilityRole="header" style={fontScale > 1.3 || width < 360 ? undefined : { flex: 1 }}>
+            {RANGE_TITLE[range]}
+          </Text>
+          <SegmentedControl value={range} onChange={setRange}
+                            options={[{ key: "1w", label: "1W" }, { key: "1m", label: "1M" }, { key: "3m", label: "3M" }]} />
+        </View>
+        <Card>
+          <Text variant="section" accessibilityRole="header">Oura readiness</Text>
+          <Text variant="meta" color={color.muted} style={{ marginBottom: space.sm }}>
+            Dots along the bottom mark days Rhythm assessed.
+          </Text>
+          {trend ? <TrendChart days={trend.days} onOpenDay={open} /> : <Text variant="meta" color={color.muted}>Loading…</Text>}
+        </Card>
+        {b && (
+          <Card>
+            <Text variant="eyebrow" color={color.muted} style={{ marginBottom: space.sm }}>Rhythm states</Text>
+            {top.map((s) => (
+              <View key={s.state} style={{ marginBottom: space.sm }} accessible accessibilityLabel={`${s.state}, ${s.days} days`}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: stateColor[s.state as CapacityDisplay].base }} />
+                  <Text variant="bodyStrong" style={{ flex: 1 }}>{s.state}</Text>
+                  <Text color={color.muted}>{s.days} day{s.days === 1 ? "" : "s"}</Text>
                 </View>
-              );
-            })}
-          </View>
+                <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
+                  <View style={{ height: 8, borderRadius: 4, width: `${(s.days / b.assessed_days) * 100}%`,
+                                 backgroundColor: stateColor[s.state as CapacityDisplay].base }} />
+                </View>
+              </View>
+            ))}
+            {other > 0 && (
+              <View style={{ marginBottom: space.sm }} accessible accessibilityLabel={`Other states, ${other} days`}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.muted }} />
+                  <Text variant="bodyStrong" style={{ flex: 1 }}>Other states</Text>
+                  <Text color={color.muted}>{other} day{other === 1 ? "" : "s"}</Text>
+                </View>
+                <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
+                  <View style={{ height: 8, borderRadius: 4, width: `${(other / b.assessed_days) * 100}%`, backgroundColor: color.muted }} />
+                </View>
+              </View>
+            )}
+            <View style={{ borderTopWidth: 1, borderTopColor: color.hairline, paddingTop: space.sm, gap: 4 }}>
+              {([
+                ["Assessed by Rhythm", b.assessed_days],
+                ["Could go either way", b.uncertain_days],
+                ["Oura readings only", b.reading_only_days],
+                ["No data", b.no_data_days],
+              ] as [string, number][]).filter(([, v], i) => v > 0 || i === 0).map(([k, v]) => (
+                <View key={k} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <Text variant="meta" color={color.muted}>{k}</Text>
+                  <Text variant="metaStrong">{v} of {b.days_so_far} days</Text>
+                </View>
+              ))}
+              <Text variant="meta" color={color.muted} style={{ marginTop: space.xs }}>{b.summary}</Text>
+            </View>
+          </Card>
+        )}
+      </View>
+
+      {(trend?.patterns.length ?? 0) > 0 && (
+        <View>
+          <SectionHeader title="Patterns Rhythm has noticed" />
+          <Card>
+            {trend!.patterns.map((p) => (
+              <View key={p.title} style={{ marginBottom: space.xs }}>
+                <Text variant="bodyStrong">{p.title}</Text>
+                <Text variant="meta" color={color.muted}>{p.body}</Text>
+              </View>
+            ))}
+          </Card>
         </View>
       )}
 
-      <View>
-        <SectionHeader title="Patterns Rhythm has noticed" />
-        <Card>
-          {(data?.patterns.length ?? 0) === 0 ? (
-            <Text variant="meta" color={color.muted}>Patterns show up after a few weeks of check-ins. Rhythm won't guess before then.</Text>
-          ) : data!.patterns.map((p) => (
-            <View key={p.title} style={{ marginBottom: space.xs }}>
-              <Text variant="bodyStrong">{p.title}</Text>
-              <Text variant="meta" color={color.muted}>{p.body}</Text>
-            </View>
-          ))}
-        </Card>
-      </View>
-
-      <View>
-        <SectionHeader title={range === "week" ? "Where the week went" : "Where the month went"} />
-        <Card>
-          {(data?.where_time_went.length ?? 0) === 0 ? (
-            <Text variant="meta" color={color.muted}>Tag a calendar in Settings or tag scheduled tasks to see where time goes.</Text>
-          ) : data!.where_time_went.map((t) => {
-            const p = t.color_family && t.color_family in pastel ? pastel[t.color_family as keyof typeof pastel] : null;
-            return (
-              <View key={t.area_id} style={{ marginBottom: space.sm }} accessible accessibilityLabel={`${t.name}, ${hours(t.minutes)}`}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                  <Text variant="metaStrong">{t.name}</Text>
-                  <Text variant="meta" color={color.muted}>{hours(t.minutes)}</Text>
+      {(trend?.where_time_went.length ?? 0) > 0 && (
+        <View>
+          <SectionHeader title="Where your time went" />
+          <Card>
+            {trend!.where_time_went.map((t) => {
+              const max = Math.max(...trend!.where_time_went.map((x) => x.minutes));
+              const p = t.color_family && t.color_family in pastel ? pastel[t.color_family as keyof typeof pastel] : null;
+              return (
+                <View key={t.area_id} style={{ marginBottom: space.sm }} accessible accessibilityLabel={`${t.name}, ${hours(t.minutes)}`}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                    <Text variant="metaStrong">{t.name}</Text>
+                    <Text variant="meta" color={color.muted}>{hours(t.minutes)}</Text>
+                  </View>
+                  <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
+                    <View style={{ height: 8, borderRadius: 4, width: `${(t.minutes / max) * 100}%`, backgroundColor: p ? p.text : color.muted, opacity: 0.55 }} />
+                  </View>
                 </View>
-                <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
-                  <View style={{ height: 8, borderRadius: 4, width: `${(t.minutes / maxMinutes) * 100}%`, backgroundColor: p ? p.text : color.muted, opacity: 0.55 }} />
-                </View>
-              </View>
-            );
-          })}
-        </Card>
-      </View>
+              );
+            })}
+          </Card>
+        </View>
+      )}
 
-      <Card>
-        <Text variant="eyebrow" color={color.muted} style={{ marginBottom: 4 }}>About this data</Text>
-        <Text variant="meta" color={color.muted}>
-          A state reflects capacity against demand — never a number you chose, and never invented when evidence is thin.
-        </Text>
-      </Card>
+      <BottomSheet visible={about} onClose={() => setAbout(false)} title="About this data">
+        <View style={{ gap: space.sm }}>
+          <Text>
+            Oura readiness is Oura's measure. A Rhythm state reflects capacity against what the day asked, and only appears
+            when there was evidence for both. Nothing is filled in for days without data.
+          </Text>
+          <Button label="Close" variant="secondary" fullWidth onPress={() => setAbout(false)} />
+        </View>
+      </BottomSheet>
 
-      <BottomSheet visible={!!detail} onClose={() => setDetail(null)}
+      <BottomSheet visible={!!detail} onClose={() => { setDetail(null); setSelected(null); }}
                    kicker={detail ? fromIso(detail.date).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : undefined}>
         {detail && (
           <View style={{ gap: space.sm }}>
-            <StateBadge state={detail.status === "assessed" && detail.state ? detail.state as CapacityDisplay
-              : detail.status === "uncertain" ? "Uncertain" : "Insufficient"} label={detail.status === "insufficient_evidence" ? "Insufficient evidence" : undefined} />
-            <Text variant="meta" color={color.muted}>{detail.basis}</Text>
-            <Card padding="list">
-              {detail.evidence.map((e) => (
-                <Text key={e} style={{ paddingVertical: 8, paddingHorizontal: space.sm }}>{e}</Text>
-              ))}
-              {detail.confidence && (
-                <Text variant="meta" color={color.muted} style={{ paddingVertical: 8, paddingHorizontal: space.sm }}>
-                  Confidence: {detail.confidence}
+            {display(detail.rhythm) ? (
+              <View style={{ gap: 4 }}>
+                <StateBadge state={display(detail.rhythm)!} />
+                {detail.basis && <Text variant="meta" color={color.muted}>{detail.basis}{detail.rhythm?.confidence ? ` · ${detail.rhythm.confidence} confidence` : ""}</Text>}
+              </View>
+            ) : (
+              <Text variant="meta" color={color.muted}>
+                {detail.rhythm ? "Not enough evidence for a Rhythm state this day." : "No Rhythm state for this day."}
+              </Text>
+            )}
+            {detail.interpretation && <Text>{detail.interpretation}</Text>}
+
+            <View style={{ borderRadius: radius.option, backgroundColor: color.surface, borderWidth: 1, borderColor: color.hairline, padding: space.sm, gap: 4 }}>
+              <Text variant="eyebrow" color={color.muted}>Oura</Text>
+              {detail.reading ? (
+                <>
+                  {detail.reading.readiness != null && <Text>Readiness {Math.round(detail.reading.readiness)}</Text>}
+                  {detail.reading.sleep_minutes != null && <Text>Slept {hours(detail.reading.sleep_minutes)}</Text>}
+                  {detail.reading.hrv_ms != null && <Text>HRV {Math.round(detail.reading.hrv_ms)} ms</Text>}
+                  {detail.reading.resting_hr != null && <Text>Resting heart rate {Math.round(detail.reading.resting_hr)} bpm</Text>}
+                </>
+              ) : <Text variant="meta" color={color.muted}>No Oura reading for this day.</Text>}
+            </View>
+
+            <View style={{ borderRadius: radius.option, backgroundColor: color.surface, borderWidth: 1, borderColor: color.hairline, padding: space.sm, gap: 4 }}>
+              <Text variant="eyebrow" color={color.muted}>Check-ins</Text>
+              {detail.checkins.length ? detail.checkins.map((c) => (
+                <Text key={c.recorded_at}>
+                  {new Date(c.recorded_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  {": "}
+                  {[c.energy && `energy ${LEVEL[c.energy]}`, c.rested && `rested ${RESTED[c.rested]}`,
+                    c.perceived_demand && `day felt ${DEMAND[c.perceived_demand]}`].filter(Boolean).join(", ")}
                 </Text>
-              )}
-            </Card>
+              )) : <Text variant="meta" color={color.muted}>No check-in this day.</Text>}
+            </View>
+
+            <View style={{ borderRadius: radius.option, backgroundColor: color.surface, borderWidth: 1, borderColor: color.hairline, padding: space.sm, gap: 4 }}>
+              <Text variant="eyebrow" color={color.muted}>Calendar</Text>
+              <Text variant={detail.calendar ? "body" : "meta"} color={detail.calendar ? color.ink : color.muted}>
+                {detail.calendar ?? "No calendar information for this day."}
+              </Text>
+            </View>
+
             {detail.disagreements.map((d) => (
               <View key={d} style={{ backgroundColor: stateColor.Strained.soft, borderRadius: radius.option, padding: space.sm }}>
                 <Text variant="meta">{d}</Text>
               </View>
             ))}
-            {detail.interpretation && (
-              <View>
-                <Text variant="eyebrow" color={color.muted} style={{ marginBottom: 4 }}>Rhythm's interpretation</Text>
-                <Text>{detail.interpretation}</Text>
-              </View>
-            )}
-            <Button label="Close" variant="secondary" fullWidth onPress={() => setDetail(null)} />
+            <Button label="Close" variant="secondary" fullWidth onPress={() => { setDetail(null); setSelected(null); }} />
           </View>
         )}
       </BottomSheet>

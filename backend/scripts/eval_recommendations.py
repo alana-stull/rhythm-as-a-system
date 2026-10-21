@@ -34,7 +34,7 @@ SCENARIOS: list[tuple[str, Recommendation, str | None, str | None, bool]] = [
                     facts={"task_title": "Call mom back", "days_pushed": 1, "window": None, "calendar_known": False}),
      "Balanced", "gentle", True),
     ("priority window",
-     Recommendation("priority_window", "Your 10–12 is open — a good stretch for Draft midterm outline.", "10–12",
+     Recommendation("priority_window", "Your 10–12 is open, a good stretch for Draft midterm outline.", "10–12",
                     facts={"task_title": "Draft midterm outline", "window": "10–12", "estimate_fits": False}),
      "Aligned", "motivating", True),
     ("make room, overloaded",

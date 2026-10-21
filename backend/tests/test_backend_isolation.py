@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.db import assessments, connections, day_inputs, deletion, profiles
-from backend.pipeline import llm
+from backend.pipeline import history, llm
 from backend.db.scope import privileged, user_scope
 from backend.tests.pg_support import make_user, pg_engine  # noqa: F401
 
@@ -28,20 +28,22 @@ APP_FILES = [p for p in BACKEND.rglob("*.py")
 
 # Where privileged (RLS-bypassing) access is allowed, and why.
 PRIVILEGED_CALLERS = {
-    "routers/me.py": {"_ensure", "delete_my_data"},  # profile fallback; data deletion
+    "routers/me.py": {"_ensure", "delete_my_data", "delete_account"},  # profile fallback; data and account deletion
     "routers/tasks.py": {"_today"},                   # profile fallback + time zone for "today"
     "routers/checkins.py": {"_local_date"},           # same
     "pipeline/recompute.py": {"recompute_day"},       # reads backend-only connections; writes assessments
     "pipeline/today.py": {"build_today", "_remember_context", "_phrase_later"},  # writes interpretations and the usage ledger
     # backend-only tokens and provider data
-    "routers/connections.py": {"list_connections", "oura_disconnect", "apple_health_upload", "apple_calendar_upload"},
-    "integrations/oura.py": {"_store", "_access_token", "sync"},
+    "routers/connections.py": {"list_connections", "oura_disconnect", "apple_health_upload", "apple_calendar_upload",
+                                "apple_calendar_disconnect"},
+    "integrations/oura.py": {"_store", "_access_token", "sync", "revoke_at_oura"},
+    "pipeline/history.py": {"fill_history"},          # assesses past days from their own evidence
 }
 PRIVILEGED_SQL_FUNCTIONS = {
     deletion.delete_user_data, profiles.ensure_profile, profiles.get_profile,
     day_inputs._checkins, day_inputs._tasks, day_inputs._calendar, day_inputs._wearable,
     assessments.upsert_assessment, assessments.cached_interpretation, assessments.store_interpretation,
-    llm._record,
+    llm._record, history.fill_history, history._days_with_own_evidence,
     connections.get_connection, connections.list_connections, connections.save_tokens, connections.mark,
     connections.mark_synced, connections.disconnect, connections.latest_health_day, connections.upsert_health_days,
     connections.health_sources_on, connections.replace_calendar_events,

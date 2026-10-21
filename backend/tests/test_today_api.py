@@ -143,9 +143,10 @@ def test_a_new_person_gets_an_honest_empty_today(api, person):
     body = r.json()
     assert body["date"] == str(TODAY)
     cap = body["capacity"]
-    assert cap["status"] == "insufficient_evidence" and cap["state"] is None and cap["context"] is None
+    assert cap["status"] == "insufficient_evidence" and cap["state"] is None
+    assert cap["context"] == "Rhythm doesn't have enough to read your day yet. A quick check-in is all it needs to start."
     assert cap["checked_in_today"] is False and "check_in" in cap["next_actions"]
-    assert body["what_matters_now"]["kind"] == "check_in"
+    assert body["what_matters_now"] is None  # the card itself asks for the check-in
     assert body["priorities"] == [] and body["schedule"] == {"upcoming": [], "calendar_connected": False}
 
 
@@ -228,3 +229,30 @@ def test_strained_days_suggest_making_room_not_doing_more(api, person):
     body = api.get("/today", headers=auth(person)).json()
     assert body["capacity"]["state"] == "Strained"
     assert body["what_matters_now"]["kind"] == "make_room"
+
+
+# ── An unconnected calendar is "unknown", never "light" ──────────────────────
+
+LIGHT_WORDS = ("light", "clear", "free", "open", "nothing is scheduled", "calendar")
+
+
+def test_without_a_calendar_reasons_never_mention_the_calendar_or_a_light_day(api, person):
+    api.post("/checkins", headers=auth(person), json={"energy": "high"})        # capacity only
+    cap = api.get("/today", headers=auth(person)).json()["capacity"]
+    assert cap["status"] == "insufficient_evidence"
+    assert cap["context"] == "You said you have good energy. Rhythm doesn't know yet what today asks."
+    assert not any(w in cap["context"].lower() for w in LIGHT_WORDS)
+
+    api.post("/tasks", headers=auth(person), json={"title": "Write", "focus_on": str(TODAY), "effort": "light"})
+    api.post("/checkins", headers=auth(person), json={"perceived_demand": "moderate"})
+    cap = api.get("/today", headers=auth(person)).json()["capacity"]
+    assert cap["status"] == "assessed" and "calendar" not in cap["context"] and " light" not in cap["context"]
+
+
+def test_a_connected_empty_calendar_is_called_clear_not_light(api, person, pg_engine):
+    connect_calendar(pg_engine, person)  # connected and fresh, nothing scheduled
+    api.post("/checkins", headers=auth(person), json={"energy": "high"})
+    cap = api.get("/today", headers=auth(person)).json()["capacity"]
+    assert cap["status"] == "insufficient_evidence"  # an empty calendar sets no demand band on its own
+    assert cap["context"] == ("You said you have good energy, and nothing is scheduled on your calendar. "
+                              "Rhythm doesn't know yet what today asks. An empty calendar doesn't mean today is light.")

@@ -117,7 +117,8 @@ export function CollapsedQuestionRow({ question, answer, onPress }: { question: 
 }
 
 // ── Five-point scale (energy, demand, rested) ─────────────────────────────────
-// Each step has a word, so VoiceOver reads "Low, 2 of 5" rather than a number.
+// Fills up to the chosen step. Each step has a word, so VoiceOver reads "Low,
+// 2 of 5" rather than a number.
 type ScaleProps = {
   value: number | null;
   onChange: (v: number) => void;
@@ -132,6 +133,7 @@ export function ScaleSelector({ value, onChange, stepLabels, accessibilityLabel 
         {stepLabels.map((word, i) => {
           const n = i + 1;
           const active = value === n;
+          const filled = value !== null && n <= value; // fills up to the choice, like a level
           return (
             <Pressable
               key={n}
@@ -139,7 +141,7 @@ export function ScaleSelector({ value, onChange, stepLabels, accessibilityLabel 
               accessibilityRole="radio"
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${word}, ${n} of 5`}
-              style={[styles.scaleStep, { backgroundColor: active ? c.amber : c.surface, borderColor: active ? c.amber : "rgba(27,27,29,0.15)" }]}
+              style={[styles.scaleStep, { backgroundColor: filled ? c.amber : c.surface, borderColor: filled ? c.amber : "rgba(27,27,29,0.15)" }]}
             />
           );
         })}

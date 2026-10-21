@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Iterator, Literal
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import Engine
 
 from backend.auth import CurrentUser, get_current_user
-from backend.config import settings
 from backend.db import connections, profiles
 from backend.db.scope import engine_or_503, privileged
 from backend.integrations import health, oura, secrets
@@ -33,9 +32,7 @@ DisplayState = Literal["syncing", "up_to_date", "not_yet", "delayed", "expired",
 STALE_AFTER = dt.timedelta(hours=12)
 
 
-def get_http() -> Iterator[httpx.Client]:
-    with httpx.Client(timeout=15) as client:
-        yield client
+get_http = oura.http_client  # one dependency, overridden in tests
 
 
 class ConnectionOut(BaseModel):
@@ -105,18 +102,7 @@ def oura_callback(state: str, code: str | None = None, error: str | None = None,
                   engine: Engine = Depends(engine_or_503), http: httpx.Client = Depends(get_http),
                   now: dt.datetime = Depends(get_now)):
     """Unauthenticated browser redirect: the signed state is what identifies the person."""
-    back = f"{settings.app_return_url}?provider=oura&status="
-    try:
-        user_id = secrets.verify_state(state, oura.PROVIDER)
-    except (secrets.BadState, secrets.NotConfigured):
-        return RedirectResponse(back + "error", status_code=302)
-    if error or not code:
-        return RedirectResponse(back + "cancelled", status_code=302)
-    try:
-        oura.exchange_code(engine, user_id, code, http, now)
-    except (oura.NeedsReauth, httpx.HTTPError, oura.OuraNotConfigured, secrets.NotConfigured):
-        return RedirectResponse(back + "error", status_code=302)
-    return RedirectResponse(back + "connected", status_code=302)
+    return RedirectResponse(oura.handle_callback(state, code, error, engine, http, now), status_code=302)
 
 
 class SyncOut(BaseModel):
@@ -211,3 +197,13 @@ def apple_calendar_upload(body: CalendarUpload, user: CurrentUser = Depends(get_
             [e.model_dump() for e in body.events if e.ends_at > body.range_start and e.starts_at < body.range_end])
         connections.mark_synced(conn, user.id, "apple_calendar", now)
     return SyncOut(days_written=written)
+
+
+@router.delete("/apple-calendar", status_code=status.HTTP_204_NO_CONTENT)
+def apple_calendar_disconnect(user: CurrentUser = Depends(get_current_user), engine: Engine = Depends(engine_or_503),
+                              now: dt.datetime = Depends(get_now)):
+    """Turned off in Rhythm, or calendar access was revoked in iOS Settings (the app reports it)."""
+    with privileged(engine) as conn:
+        tz = (profiles.get_profile(conn, user.id) or {}).get("timezone")
+        connections.revoke_device_calendar(conn, user.id, "apple_calendar", day_context(tz, now).day_start)
+

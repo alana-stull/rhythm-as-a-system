@@ -39,6 +39,16 @@ class Settings(BaseSettings):
     # legacy shared HS256 secret; leave empty otherwise.
     supabase_url: str = ""
     supabase_jwt_secret: str = ""
+    # Backend-only. Used solely to delete a person's sign-in account when they delete their account (admin API).
+    # Never sent to, or bundled in, the app.
+    supabase_service_role_key: str = ""
+
+    # Sign in with Apple, backend-only: revokes a person's Apple tokens when they delete their account (Apple
+    # requires it). The key is the .p8 from Apple Developer -> Keys; newlines may be written as \n.
+    apple_client_id: str = "co.findrhythm.app"   # the iOS bundle ID: native sign-in tokens are issued to it
+    apple_team_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key: str = ""
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
@@ -47,11 +57,12 @@ class Settings(BaseSettings):
     oura_client_id: str = ""
     oura_client_secret: str = ""
     oura_redirect_uri: str = "http://localhost:8000/oura/callback"
-    # Per-user Oura (F6). The redirect URI must be registered in the Oura
-    # developer app; after the callback the browser returns to the app here.
-    oura_v2_redirect_uri: str = "http://localhost:8000/connections/oura/callback"
+    # Per-user Oura (F6). Empty = use OURA_REDIRECT_URI, the address registered
+    # in the Oura developer app (/oura/callback recognizes per-user requests by
+    # their signed state). After the callback the browser returns to the app here.
+    oura_v2_redirect_uri: str = ""
     app_return_url: str = "rhythm://connections"
-    oura_backfill_days: int = 30
+    oura_backfill_days: int = 90  # first sync; Oura's API serves history, this is our cap
 
     # Secrets generated locally (never committed). Fernet key for provider
     # tokens at rest; HMAC secret for OAuth state.

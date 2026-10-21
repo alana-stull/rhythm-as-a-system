@@ -5,7 +5,7 @@ Rules choose the recommendation and write a complete, honest sentence. The
 model (pipeline/llm.py) may only rephrase that sentence, from the same facts.
 
 Candidates, first match wins:
-1. Rhythm can't read capacity yet            → a check-in
+1. Rhythm can't read capacity yet            → nothing (the card asks for a check-in)
 2. Strained / Overloaded                      → make room (move or shrink something)
 3. An open priority that keeps getting pushed → name it, with an open window if one exists
 4. Any open priority                          → its best open window
@@ -57,8 +57,7 @@ def recommend(a: Assessment, priorities: list[dict[str, Any]], windows: list[Win
               today: dt.date) -> Recommendation | None:
     """`windows` is None when no fresh calendar is connected (unknown), [] when the day is full."""
     if a.capacity.band is None:
-        return Recommendation(kind="check_in", text="A quick check-in will help Rhythm read your day.",
-                              facts={"missing": list(a.missing)})
+        return None  # "How you're doing" carries the check-in; nothing to add here yet
 
     open_priorities = [p for p in priorities if _open(p)]
     state = a.state
@@ -96,7 +95,7 @@ def recommend(a: Assessment, priorities: list[dict[str, Any]], windows: list[Win
         w = _fitting(windows, task.get("estimate_minutes"))
         if w is not None:
             return Recommendation(
-                kind="priority_window", text=f"Your {label(w)} is open — a good stretch for {task['title']}.",
+                kind="priority_window", text=f"Your {label(w)} is open, a good stretch for {task['title']}.",
                 highlight=label(w), task_id=str(task["id"]), window=w,
                 facts={"task_title": task["title"], "window": label(w),
                        "estimate_fits": bool(task.get("estimate_minutes"))})

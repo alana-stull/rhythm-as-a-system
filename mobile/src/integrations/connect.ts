@@ -15,7 +15,8 @@ export async function connectOura(): Promise<void> {
 
 export async function connectCalendar(): Promise<void> {
   if (!(await calendarPermission(true))) throw new Error("Calendar access is off. You can turn it on in iOS Settings.");
-  await syncCalendar();
+  const result = await syncCalendar();
+  if (result.status === "no_calendars") throw new Error("There are no calendars on this iPhone yet.");
 }
 
 export async function connectAppleHealth(): Promise<void> {

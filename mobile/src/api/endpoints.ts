@@ -6,6 +6,7 @@ export const updateMe = (values: Partial<{
   display_name: string | null;
   timezone: string;
   onboarding_completed: boolean;
+  onboarding_step: string | null;
   onboarding_answers: Record<string, unknown>;
   ai_task_titles_consented: boolean;
 }>) => api<Profile>("/me", { method: "PATCH", json: values });
@@ -56,6 +57,9 @@ export const createRhythm = (title: string, cadence_note?: string) =>
   api<Rhythm>("/rhythms", { method: "POST", json: { title, cadence_note: cadence_note || null } });
 export const deleteRhythm = (id: string) => api<void>(`/rhythms/${id}`, { method: "DELETE" });
 export const listHelps = () => api<Help[]>("/what-helps");
+// One observation from the past week's linked records, or nulls when there's nothing real to say.
+export type Reflection = { kind: "goal" | "rhythm" | "priorities" | "tasks" | null; text: string | null };
+export const getReflection = () => api<Reflection>("/you/reflection");
 export const createHelp = (text: string) => api<Help>("/what-helps", { method: "POST", json: { text } });
 export const deleteHelp = (id: string) => api<void>(`/what-helps/${id}`, { method: "DELETE" });
 
@@ -77,22 +81,38 @@ export interface Plan {
   open_windows: { starts_at: string; ends_at: string }[] | null;
 }
 export const getPlan = (start: string, days: number) => api<Plan>(`/plan?start=${start}&days=${days}`);
-export const createBlock = (values: { kind: "event" | "protected" | "task"; title?: string; task_id?: string;
-  starts_at: string; ends_at: string }) => api<PlanItem>("/plan/blocks", { method: "POST", json: values });
+export const createBlock = (values: { kind: "event" | "protected" | "task"; title?: string | null; task_id?: string;
+  area_id?: string | null; starts_at: string; ends_at: string }) => api<PlanItem>("/plan/blocks", { method: "POST", json: values });
 export const updateBlock = (id: string, values: Record<string, unknown>) =>
   api<PlanItem>(`/plan/blocks/${id}`, { method: "PATCH", json: values });
 export const deleteBlock = (id: string) => api<void>(`/plan/blocks/${id}`, { method: "DELETE" });
 
 // ── Insights ──────────────────────────────────────────────────────────────────
-export interface InsightDay { date: string; status: string; state: string | null; confidence: string | null; pathway: string }
+export interface Reading {
+  source: string; readiness: number | null; sleep_minutes: number | null; hrv_ms: number | null;
+  hrv_method: string | null; resting_hr: number | null;
+}
+export interface RhythmDay { status: string; state: string | null; possible_states: string[]; confidence: string | null; pathway: string }
+export interface InsightDay { date: string; rhythm: RhythmDay | null; reading: Reading | null; checked_in: boolean }
 export interface Insights {
   days: InsightDay[];
+  breakdown: {
+    days_so_far: number; assessed_days: number; uncertain_days: number; reading_only_days: number; no_data_days: number;
+    states: { state: string; days: number }[]; summary: string;
+  };
   patterns: { title: string; body: string }[];
   where_time_went: { area_id: string; name: string; color_family: string | null; minutes: number }[];
 }
 export interface DayDetail {
-  date: string; status: string; state: string | null; possible_states: string[]; confidence: string | null;
-  pathway: string; basis: string; evidence: string[]; disagreements: string[]; interpretation: string | null;
+  date: string; rhythm: RhythmDay | null; basis: string | null; evidence: string[]; disagreements: string[];
+  interpretation: string | null; reading: Reading | null; calendar: string | null;
+  checkins: { recorded_at: string; energy: string | null; rested: string | null; perceived_demand: string | null; context_tags: string[] }[];
 }
 export const getInsights = (start: string, end: string) => api<Insights>(`/insights?start=${start}&end=${end}`);
 export const getDayDetail = (date: string) => api<DayDetail>(`/insights/days/${date}`);
+
+// Deletes the account, all of its data and connections, and the sign-in itself.
+export const deleteAccount = (appleAuthorizationCode?: string) =>
+  api<{ account_deleted: boolean; oura_revoked: boolean | null }>("/me", {
+    method: "DELETE", json: { confirm: true, apple_authorization_code: appleAuthorizationCode ?? null },
+  });

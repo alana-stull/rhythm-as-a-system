@@ -32,6 +32,10 @@ class AuthError(Exception):
     """Token rejected. The message is safe to log but not shown to clients."""
 
 
+class AuthUnavailable(Exception):
+    """The token couldn't be checked (signing keys unreachable). A 503, never a 401."""
+
+
 @dataclass(frozen=True)
 class CurrentUser:
     id: uuid.UUID
@@ -65,6 +69,9 @@ class TokenVerifier:
                 raise AuthError("asymmetric token but no JWKS configured")
             try:
                 signing_key = self.jwks.get_signing_key_from_jwt(token)
+            except jwt.PyJWKClientConnectionError as exc:
+                # Supabase unreachable: not the person's fault, so never a sign-out.
+                raise AuthUnavailable(f"signing keys unavailable: {exc}") from exc
             except jwt.PyJWTError as exc:
                 raise AuthError(f"no matching signing key: {exc}") from exc
             key_alg = getattr(signing_key, "algorithm_name", None)
@@ -123,5 +130,7 @@ def get_current_user(request: Request, verifier: TokenVerifier = Depends(get_tok
         raise _UNAUTHORIZED
     try:
         return verifier.verify(token.strip())
+    except AuthUnavailable:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-in can't be checked right now.") from None
     except AuthError:
         raise _UNAUTHORIZED from None

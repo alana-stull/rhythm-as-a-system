@@ -8,3 +8,4 @@ export * from "./components/controls";
 export * from "./components/BottomSheet";
 export * from "./components/Screen";
 export * from "./components/TabBar";
+export * from "./components/MonthGrid";

@@ -1,14 +1,16 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { Image, KeyboardAvoidingView, Platform, Pressable, Text as RNText, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { appleSignInSupported } from "../src/auth/apple";
 import { useSession } from "../src/auth/SessionProvider";
 import { Button, color, fontFamily, Icon, minTouch, radius, space, Text, TextField } from "../src/design";
 import { supabaseConfigured } from "../src/lib/supabase";
 
 type Step = "welcome" | "email" | "code";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RESEND_AFTER_S = 60;  // matches Supabase's per-address limit on how often a code can be sent
 
 // Apple's own button in real builds (required artwork and wording). Expo Go
 // lacks that native view, so development review gets a same-size stand-in.
@@ -35,10 +37,17 @@ function AppleButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-// Welcome → email → 6-digit code. The only way into Rhythm.
+// Welcome → Apple, or email → 6-digit code. The only way into Rhythm, for new and returning people alike:
+// both create the account on first use and sign back in afterwards.
 export default function SignIn() {
-  const { sendCode, verifyCode } = useSession();
+  const { sendCode, verifyCode, signInWithApple } = useSession();
   const [step, setStep] = useState<Step>("welcome");
+  const [wait, setWait] = useState(0);  // seconds until another code can be sent
+  useEffect(() => {
+    if (wait <= 0) return;
+    const t = setTimeout(() => setWait((w) => w - 1), 1000);
+    return () => clearTimeout(t);
+  }, [wait]);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,8 +69,20 @@ export default function SignIn() {
     await sendCode(email.trim().toLowerCase());
     setCode("");
     setStep("code");
+    setWait(RESEND_AFTER_S);
   });
-  const verify = () => run(() => verifyCode(email.trim().toLowerCase(), code));
+  const verify = () => run(async () => {
+    try {
+      await verifyCode(email.trim().toLowerCase(), code);
+    } catch (e) {
+      setCode("");  // a fresh field for the corrected or new code
+      throw e;
+    }
+  });
+  const apple = () => run(async () => {
+    if (!appleSignInSupported) throw new Error("Sign in with Apple works in the Rhythm app, not Expo Go. Continue with email here.");
+    await signInWithApple();  // false = closed the Apple sheet; nothing to show
+  });
 
   if (step === "welcome") {
     return (
@@ -78,7 +99,7 @@ export default function SignIn() {
             Make room for what matters.
           </Text>
           {Platform.OS === "ios" && (
-            <AppleButton onPress={() => setError("Sign in with Apple isn't set up yet. Continue with email for now.")} />
+            <AppleButton onPress={busy ? () => {} : apple} />
           )}
           <Button label="Continue with email" variant="neutral" fullWidth style={styles.authButton}
                   onPress={() => { setError(null); setStep("email"); }} disabled={!supabaseConfigured} />
@@ -150,8 +171,9 @@ export default function SignIn() {
           ) : (
             <>
               <Button label={busy ? "Checking…" : "Continue"} fullWidth disabled={busy || code.length !== 6} onPress={verify} />
-              <Button label="Send a new code" variant="ghost" onPress={send} disabled={busy}
-                      style={{ alignSelf: "center", marginTop: space.sm }} />
+              <Button label={wait > 0 ? `Send a new code in ${wait}s` : "Send a new code"} variant="ghost" onPress={send}
+                      disabled={busy || wait > 0} style={{ alignSelf: "center", marginTop: space.sm }}
+                      accessibilityHint={wait > 0 ? `Available in ${wait} seconds` : undefined} />
             </>
           )}
         </View>
@@ -167,7 +189,7 @@ const styles = StyleSheet.create({
   brand: { alignItems: "center" },
   mark: { width: 80, height: 80, borderRadius: 18, marginBottom: space.md },  // the logo file's own soft neutral ground
   wordmark: { fontFamily: fontFamily.serif, fontSize: 34, lineHeight: 40, letterSpacing: -0.5, color: color.ink },
-  tagline: { marginTop: 6, fontSize: 15, lineHeight: 20, letterSpacing: 0.3 },
+  tagline: { marginTop: 6, fontSize: 15, lineHeight: 20 },
   headline: { fontSize: 18, lineHeight: 24, marginBottom: space.xs },
   center: { textAlign: "center" },
   actions: { paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.sm },

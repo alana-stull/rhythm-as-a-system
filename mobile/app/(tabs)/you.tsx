@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import {
   type Area,
   createGoal,
@@ -9,82 +9,104 @@ import {
   deleteGoal,
   deleteHelp,
   deleteRhythm,
+  getReflection,
   listAreas,
   listGoals,
   listHelps,
   listRhythms,
   type Goal,
   type Help,
+  type Reflection,
   type Rhythm,
 } from "../../src/api/endpoints";
 import { useSession } from "../../src/auth/SessionProvider";
-import { Button, Card, Icon, Screen, ScreenHeader, TagChip, Text, TextField, color, minTouch, space } from "../../src/design";
+import {
+  BottomSheet,
+  Button,
+  Card,
+  DarkCallout,
+  Icon,
+  Screen,
+  TagChip,
+  Text,
+  TextField,
+  color,
+  minTouch,
+  radius,
+  space,
+} from "../../src/design";
 import { toTag } from "../../src/lib/tags";
 
-type Row = { id: string; title: string; detail?: string | null };
+type Kind = "goal" | "rhythm" | "help";
+const FIELDS: Record<Kind, { title: string; fields: { placeholder: string; label: string }[] }> = {
+  goal: { title: "Add a goal", fields: [{ placeholder: "What are you working toward?", label: "Goal" },
+                                        { placeholder: "A detail or deadline (optional)", label: "Detail" }] },
+  rhythm: { title: "Add a rhythm", fields: [{ placeholder: "Name the rhythm", label: "Rhythm" },
+                                            { placeholder: "How often? (optional)", label: "How often" }] },
+  help: { title: "Add what helps", fields: [{ placeholder: "What helps?", label: "What helps" }] },
+};
+const GOALS_SHOWN = 2;
 
-// One "You" section: serif heading, + Add, a hint, an inline add form and the list.
-function Section({ title, hint, empty, rows, fields, onAdd, onRemove }: {
-  title: string; hint: string; empty: string; rows: Row[];
-  fields: { placeholder: string; label: string }[];
-  onAdd: (values: string[]) => Promise<void>; onRemove: (id: string) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<string[]>(fields.map(() => ""));
-  const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    if (!values[0].trim()) return;
-    setBusy(true);
-    try {
-      await onAdd(values.map((v) => v.trim()));
-      setValues(fields.map(() => ""));
-      setOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  };
+function RemoveButton({ label, onPress, tint = color.muted }: { label: string; onPress: () => void; tint?: string }) {
   return (
-    <View>
-      <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" }}>
-        <Text variant="section" accessibilityRole="header">{title}</Text>
-        <Button variant="ghost" label={open ? "Cancel" : "+ Add"} onPress={() => setOpen((o) => !o)} />
+    <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${label}`}
+               style={styles.remove}>
+      <Icon name="close" size={13} color={tint} />
+    </Pressable>
+  );
+}
+
+// Small text action; hitSlop keeps the touch target at 44pt without padding out the row.
+function AddAction({ label, text = "+ Add", onPress, tint = color.amberText }: {
+  label: string; text?: string; onPress: () => void; tint?: string;
+}) {
+  return (
+    <Pressable onPress={onPress} hitSlop={12} accessibilityRole="button" accessibilityLabel={label}
+               style={({ pressed }) => [styles.add, pressed && { opacity: 0.6 }]}>
+      <Text variant="metaStrong" color={tint}>{text}</Text>
+    </Pressable>
+  );
+}
+
+// Full-width list card: heading and + Add on one row, then entries or a short empty line.
+function ListCard({ title, empty, rows, addLabel, onAdd, onRemove }: {
+  title: string; empty: string; rows: { id: string; title: string; detail?: string | null }[];
+  addLabel: string; onAdd: () => void; onRemove: (id: string) => void;
+}) {
+  return (
+    <Card>
+      <View style={[styles.row, { marginBottom: 4 }]}>
+        <Text variant="section" accessibilityRole="header" style={{ flex: 1 }}>{title}</Text>
+        <AddAction label={addLabel} onPress={onAdd} />
       </View>
-      <Text variant="meta" color={color.muted} style={{ marginTop: 2, marginBottom: space.xs }}>{hint}</Text>
-      <Card padding="list">
-        {open && (
-          <View style={{ padding: space.xs, gap: space.xs }}>
-            {fields.map((f, i) => (
-              <TextField key={f.label} value={values[i]} placeholder={f.placeholder} accessibilityLabel={f.label} autoFocus={i === 0}
-                         onChangeText={(v) => setValues((xs) => xs.map((x, j) => (j === i ? v : x)))} />
-            ))}
-            <Button label="Add" size="sm" disabled={busy || !values[0].trim()} onPress={submit} style={{ alignSelf: "flex-start" }} />
+      {rows.length === 0 ? (
+        <Text variant="meta" color={color.muted}>{empty}</Text>
+      ) : rows.map((r) => (
+        <View key={r.id} style={styles.entry}>
+          <View style={{ flex: 1 }}>
+            <Text>{r.title}</Text>
+            {r.detail ? <Text variant="meta" color={color.muted}>{r.detail}</Text> : null}
           </View>
-        )}
-        {rows.length === 0 && !open && <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>{empty}</Text>}
-        {rows.map((r) => (
-          <View key={r.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: space.sm }}>
-            <View style={{ flex: 1 }}>
-              <Text variant="bodyStrong">{r.title}</Text>
-              {r.detail ? <Text variant="meta" color={color.muted}>{r.detail}</Text> : null}
-            </View>
-            <Pressable onPress={() => onRemove(r.id)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${r.title}`}
-                       style={{ minWidth: 32, minHeight: minTouch, alignItems: "center", justifyContent: "center" }}>
-              <Icon name="close" size={14} color={color.muted} />
-            </Pressable>
-          </View>
-        ))}
-      </Card>
-    </View>
+          <RemoveButton label={r.title} onPress={() => onRemove(r.id)} />
+        </View>
+      ))}
+    </Card>
   );
 }
 
 export default function You() {
   const router = useRouter();
   const { profile } = useSession();
+  const { fontScale } = useWindowDimensions();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [rhythms, setRhythms] = useState<Rhythm[]>([]);
   const [helps, setHelps] = useState<Help[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [reflection, setReflection] = useState<Reflection | null>(null);
+  const [allGoals, setAllGoals] = useState(false);
+  const [adding, setAdding] = useState<Kind | null>(null);
+  const [values, setValues] = useState(["", ""]);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -92,72 +114,144 @@ export default function You() {
       const [g, r, h, a] = await Promise.all([listGoals(), listRhythms(), listHelps(), listAreas()]);
       setGoals(g); setRhythms(r); setHelps(h); setAreas(a);
       setError(null);
+      // Optional: if it fails, the card just stays hidden.
+      getReflection().then(setReflection, () => setReflection(null));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't load your profile.");
+      setError(e instanceof Error ? e.message : "Couldn't load this page.");
     }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const run = (fn: () => Promise<unknown>) => async () => {
+  const remove = (fn: () => Promise<unknown>) => async () => {
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "That didn't save."); }
     load();
   };
 
-  const name = profile?.display_name ?? "";
-  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "·";
+  const openAdd = (kind: Kind) => { setValues(["", ""]); setAdding(kind); };
+  const save = async () => {
+    if (!adding || !values[0].trim()) return;
+    setBusy(true);
+    try {
+      const [a, b] = values.map((v) => v.trim());
+      if (adding === "goal") await createGoal(a, b);
+      if (adding === "rhythm") await createRhythm(a, b);
+      if (adding === "help") await createHelp(a);
+      setAdding(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That didn't save.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const first = profile?.display_name?.trim().split(/\s+/)[0] ?? "";
+  // At larger text sizes Settings drops to its icon so the name keeps its room.
+  const compactSettings = fontScale > 1.3;
+  const shownGoals = allGoals ? goals : goals.slice(0, GOALS_SHOWN);
+
+  const header = (
+    <View style={styles.header}>
+      <View style={{ flex: 1 }}>
+        {first ? <Text variant="question" accessibilityRole="header">{first}</Text> : null}
+        <Text variant="meta" color={color.muted}>Your space, shaped around you.</Text>
+      </View>
+      <Pressable onPress={() => router.push("/settings")} accessibilityRole="button" accessibilityLabel="Settings" hitSlop={6}
+                 style={({ pressed }) => [styles.settings, compactSettings && styles.settingsIcon, pressed && { opacity: 0.75 }]}>
+        <Icon name="settings" size={15} color={color.ink} />
+        {!compactSettings && <Text variant="metaStrong">Settings</Text>}
+      </Pressable>
+    </View>
+  );
 
   return (
-    <Screen
-      gap={space.lg}
-      header={<ScreenHeader title="You" right={<Button size="sm" variant="secondary" label="Settings" onPress={() => router.push("/settings")} />} />}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-        <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: color.amberSoft, alignItems: "center", justifyContent: "center" }}
-              accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text variant="section" color={color.amberText}>{initials}</Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="section">{name}</Text>
-          {profile?.email ? <Text variant="meta" color={color.muted}>{profile.email}</Text> : null}
-        </View>
-      </View>
+    <Screen gap={space.md} header={header}>
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
 
-      <Section title="What I'm making space for" hint="What you're actually working toward right now."
-               empty="Nothing here yet — add what you're working toward."
-               rows={goals.map((g) => ({ id: g.id, title: g.title, detail: g.notes }))}
-               fields={[{ placeholder: "What are you working toward?", label: "Goal" },
-                        { placeholder: "A detail or deadline (optional)", label: "Detail" }]}
-               onAdd={async ([t, n]) => { await createGoal(t, n); load(); }}
-               onRemove={(id) => run(() => deleteGoal(id))()} />
-
-      <Section title="My everyday rhythms" hint="The small, steady things — not a streak, just a rhythm."
-               empty="No rhythms added yet."
-               rows={rhythms.map((r) => ({ id: r.id, title: r.title, detail: r.cadence_note }))}
-               fields={[{ placeholder: "Name the rhythm", label: "Rhythm" }, { placeholder: "How often?", label: "How often" }]}
-               onAdd={async ([t, c]) => { await createRhythm(t, c); load(); }}
-               onRemove={(id) => run(() => deleteRhythm(id))()} />
-
-      <View>
-        <Text variant="section" accessibilityRole="header">The parts of my life</Text>
-        <Text variant="meta" color={color.muted} style={{ marginTop: 2, marginBottom: space.xs }}>
-          Shows up as color on Today, Plan, and Tasks.
-        </Text>
-        <Card>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {areas.map((a) => { const t = toTag(a); return t ? <TagChip key={a.id} tag={t} /> : null; })}
-            {areas.length === 0 && <Text variant="meta" color={color.muted}>No tags yet.</Text>}
+      {/* Goals, in Today's "What matters now" callout. */}
+      <DarkCallout eyebrow="What I'm making space for">
+        {shownGoals.map((g) => (
+          <View key={g.id} style={styles.entry}>
+            <View style={{ flex: 1 }}>
+              <Text color={color.onInk}>{g.title}</Text>
+              {g.notes ? <Text variant="meta" color={color.onInkMuted}>{g.notes}</Text> : null}
+            </View>
+            <RemoveButton label={g.title} onPress={remove(() => deleteGoal(g.id))} tint={color.onInkMuted} />
           </View>
-          <Text variant="meta" color={color.muted} style={{ marginTop: space.sm }}>Add or rename these from Settings.</Text>
-        </Card>
-      </View>
+        ))}
+        <View style={[styles.row, { marginTop: 6, gap: space.md }]}>
+          <AddAction label="Add a goal" text="+ Add a goal" onPress={() => openAdd("goal")} tint={color.amberLight} />
+          {goals.length > GOALS_SHOWN && (
+            <Pressable onPress={() => setAllGoals((v) => !v)} accessibilityRole="button" hitSlop={12} style={styles.add}>
+              <Text variant="metaStrong" color={color.onInkMuted}>
+                {allGoals ? "Show fewer" : `Show all ${goals.length}`}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </DarkCallout>
 
-      <Section title="What helps me feel my best" hint="Things you've told Rhythm — never a guess on our part."
-               empty="Nothing added yet."
-               rows={helps.map((h) => ({ id: h.id, title: h.text }))}
-               fields={[{ placeholder: "What helps?", label: "What helps" }]}
-               onAdd={async ([t]) => { await createHelp(t); load(); }}
-               onRemove={(id) => run(() => deleteHelp(id))()} />
+      <ListCard title="Everyday rhythms" empty="Small things that ground your days."
+                rows={rhythms.map((r) => ({ id: r.id, title: r.title, detail: r.cadence_note }))}
+                addLabel="Add a rhythm" onAdd={() => openAdd("rhythm")}
+                onRemove={(id) => remove(() => deleteRhythm(id))()} />
+      <ListCard title="What helps me" empty="What supports your capacity."
+                rows={helps.map((h) => ({ id: h.id, title: h.text }))}
+                addLabel="Add what helps" onAdd={() => openAdd("help")}
+                onRemove={(id) => remove(() => deleteHelp(id))()} />
+
+      <Pressable onPress={() => router.push("/settings")} accessibilityRole="button"
+                 accessibilityLabel={`Areas I want to focus on: ${areas.map((a) => a.name).join(", ") || "none yet"}`}
+                 accessibilityHint="Manage your areas in Settings">
+        <Card>
+          <View style={styles.row}>
+            <Text variant="section" style={{ flex: 1 }}>Areas I want to focus on</Text>
+            <Icon name="chevronRight" size={16} color={color.muted} />
+          </View>
+          {areas.length > 0 && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: space.xs }}>
+              {areas.map((a) => { const t = toTag(a); return t ? <TagChip key={a.id} tag={t} /> : null; })}
+            </View>
+          )}
+        </Card>
+      </Pressable>
+
+      {/* Pinned to the bottom of the screen, just above the tab bar, when the page is short. */}
+      {reflection?.text && (
+        <Card style={{ marginTop: "auto" }}>
+          <Text variant="eyebrow" color={color.muted} accessibilityRole="header" style={{ marginBottom: 4 }}>
+            Your week, in reflection
+          </Text>
+          <Text>{reflection.text}</Text>
+        </Card>
+      )}
+
+      <BottomSheet visible={!!adding} onClose={() => setAdding(null)} title={adding ? FIELDS[adding].title : undefined}>
+        {adding && (
+          <View style={{ gap: space.xs }}>
+            {FIELDS[adding].fields.map((f, i) => (
+              <TextField key={f.label} value={values[i]} placeholder={f.placeholder} accessibilityLabel={f.label}
+                         autoFocus={i === 0} onChangeText={(v) => setValues((xs) => xs.map((x, j) => (j === i ? v : x)))} />
+            ))}
+            <Button label={busy ? "Saving…" : "Add"} fullWidth disabled={busy || !values[0].trim()} onPress={save}
+                    style={{ marginTop: space.sm }} />
+            <Button label="Cancel" variant="secondary" fullWidth onPress={() => setAdding(null)} />
+          </View>
+        )}
+      </BottomSheet>
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  settings: {
+    flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, paddingHorizontal: 12,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: color.borderStrong,
+  },
+  settingsIcon: { minWidth: minTouch, minHeight: minTouch, paddingHorizontal: 0, justifyContent: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  entry: { flexDirection: "row", alignItems: "center", gap: 6 },
+  add: { minHeight: 24, justifyContent: "center" },
+  remove: { minWidth: 32, minHeight: 36, alignItems: "center", justifyContent: "center" },
+});

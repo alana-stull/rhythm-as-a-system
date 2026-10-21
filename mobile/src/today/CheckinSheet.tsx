@@ -55,7 +55,7 @@ export function CheckinSheet({ visible, onClose, onSaved }: { visible: boolean; 
         ))}
         {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
         <Button label={busy ? "Saving…" : "Save"} fullWidth disabled={busy || !(energy || rested || demand)} onPress={save} />
-        <Text variant="meta" color={color.muted} style={{ textAlign: "center" }}>Answer any of these — Rhythm works out the state.</Text>
+        <Text variant="meta" color={color.muted} style={{ textAlign: "center" }}>Answer any of these. Rhythm works out the state.</Text>
       </View>
     </BottomSheet>
   );

@@ -107,6 +107,7 @@ def test_calendar_titles_health_numbers_notes_and_identity_never_reach_the_model
     {"text": "Gym has been pushed 4 days. Your 2–4 is open! Go for it."},      # exclamation
     {"text": "Your burnout risk is rising. Your 2–4 is open after 4 days."},   # clinical framing
     {"text": "x" * 200},                                                       # too long
+    {"text": "Gym has waited 4 days \u2014 your 2–4 is open."},                 # em dash
     {"nope": "missing text"},
 ])
 def test_unsafe_wording_falls_back_to_the_rules(api, person, pg_engine, reply):

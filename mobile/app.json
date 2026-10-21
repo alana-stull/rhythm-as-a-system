@@ -5,22 +5,27 @@
     "scheme": "rhythm",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.rhythm.mobile",
+      "bundleIdentifier": "co.findrhythm.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.rhythm.mobile",
+      "package": "co.findrhythm.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -57,7 +62,16 @@
           "background": false
         }
       ],
-      "expo-dev-client"
-    ]
+      "expo-apple-authentication",
+      "expo-dev-client",
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "db9f8c88-d0fa-478f-b9eb-a97fdb93ac4f"
+      }
+    },
+    "owner": "alana.stull"
   }
 }

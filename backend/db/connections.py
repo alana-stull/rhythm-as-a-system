@@ -16,6 +16,14 @@ def get_connection(conn: Connection, user_id: uuid.UUID, provider: str) -> dict[
     return dict(row) if row else None
 
 
+def lock_connection(conn: Connection, user_id: uuid.UUID, provider: str) -> dict[str, Any] | None:
+    """The connection row, locked until this transaction ends (one token refresh at a time)."""
+    row = conn.execute(text(
+        "select status, access_token_enc, refresh_token_enc, token_expires_at from public.connections "
+        "where user_id = :u and provider = :p for update"), {"u": user_id, "p": provider}).mappings().first()
+    return dict(row) if row else None
+
+
 def list_connections(conn: Connection, user_id: uuid.UUID) -> list[dict[str, Any]]:
     return [dict(r) for r in conn.execute(text(
         "select provider, status, last_synced_at, last_error, created_at from public.connections "
@@ -55,6 +63,15 @@ def disconnect(conn: Connection, user_id: uuid.UUID, provider: str) -> bool:
     return conn.execute(text(
         "update public.connections set status = 'revoked', access_token_enc = null, refresh_token_enc = null, "
         "token_expires_at = null where user_id = :u and provider = :p"), {"u": user_id, "p": provider}).rowcount == 1
+
+
+def revoke_device_calendar(conn: Connection, user_id: uuid.UUID, provider: str, from_: dt.datetime) -> int:
+    """Calendar access was turned off: the connection stops counting, and events from `from_` on are removed so
+    nothing stale is shown or counted. Earlier days stay as history (Insights). Returns events removed."""
+    conn.execute(text("update public.connections set status = 'revoked' where user_id = :u and provider = :p"),
+                 {"u": user_id, "p": provider})
+    return conn.execute(text("delete from public.external_events where user_id = :u and source = :p "
+                             "and ends_at > :f"), {"u": user_id, "p": provider, "f": from_}).rowcount
 
 
 def latest_health_day(conn: Connection, user_id: uuid.UUID, source: str) -> dt.date | None:

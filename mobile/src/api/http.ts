@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { isAuthApiError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 
 // Backend base URL. EXPO_PUBLIC_API_URL wins; in development the Metro host is
@@ -17,17 +18,44 @@ export class ApiError extends Error {
   }
 }
 
-// Every request carries the current Supabase access token. A 401 means the
-// session is gone server-side, so the app signs out locally.
-export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+// Every request carries the current Supabase access token. A 401 first gets one
+// session refresh and retry; the app only signs out (on this device) when
+// Supabase itself rejects the session. Network trouble never signs anyone out.
+//
+// `asUser`: for uploads of data read on the device (calendar, Apple Health) for one account. If a different
+// account is signed in by the time the upload is sent, it's refused rather than filed under the wrong person.
+export async function api<T>(path: string, init: RequestInit & { json?: unknown; asUser?: string } = {}): Promise<T> {
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  let token = data.session?.access_token;
   if (!token) throw new ApiError(401, "Not signed in.");
+  if (init.asUser && data.session?.user.id !== init.asUser) throw new ApiError(409, "The signed-in account changed.");
 
-  const { json, headers, ...rest } = init;
-  let res: Response;
+  let res = await send(path, init, token);
+  if (res.status === 401) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (refreshed.session) {
+      token = refreshed.session.access_token;
+      res = await send(path, init, token);
+    } else if (error && !isAuthApiError(error)) {
+      throw new ApiError(0, "Can't reach Rhythm right now. Check your connection.");
+    }
+  }
+  if (res.status === 401) {
+    await supabase.auth.signOut({ scope: "local" });
+    throw new ApiError(401, "Please sign in again.");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = typeof body?.detail === "string" ? body.detail : "Something went wrong.";
+    throw new ApiError(res.status, detail);
+  }
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+async function send(path: string, init: RequestInit & { json?: unknown; asUser?: string }, token: string): Promise<Response> {
+  const { json, headers, asUser: _asUser, ...rest } = init;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    return await fetch(`${API_URL}${path}`, {
       ...rest,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -39,15 +67,4 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   } catch {
     throw new ApiError(0, "Can't reach Rhythm right now. Check your connection.");
   }
-
-  if (res.status === 401) {
-    await supabase.auth.signOut();
-    throw new ApiError(401, "Please sign in again.");
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const detail = typeof body?.detail === "string" ? body.detail : "Something went wrong.";
-    throw new ApiError(res.status, detail);
-  }
-  return (res.status === 204 ? undefined : await res.json()) as T;
 }

@@ -110,10 +110,10 @@ export async function summarizeHealth(days = 30): Promise<HealthDay[]> {
   return out;
 }
 
-export async function syncHealth(days = 30): Promise<number> {
+export async function syncHealth(days = 30, asUser?: string): Promise<number> {
   const summary = await summarizeHealth(days);
   const res = await api<{ days_written: number }>("/connections/apple-health/days", {
-    method: "POST", json: { days: summary },
+    method: "POST", asUser, json: { days: summary },
   });
   return res.days_written;
 }

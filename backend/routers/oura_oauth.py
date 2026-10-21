@@ -15,11 +15,14 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.database import get_db
+from backend.db import scope
+from backend.integrations import oura as oura_v2
 from backend.models import DailyScore, OuraReading, OuraToken
 from backend.services import oura_api
 from backend.services.scoring import (
@@ -125,7 +128,20 @@ def get_auth_url():
 
 
 @router.get("/callback")
-async def callback(code: str, db: Session = Depends(get_db)):
+async def callback(code: str | None = None, state: str | None = None, error: str | None = None,
+                   db: Session = Depends(get_db), http=Depends(oura_v2.http_client)):
+    # The registered Oura redirect URI points here. Per-user (Supabase) connections
+    # carry a signed state; requests without one are the legacy single-user flow.
+    if state is not None:
+        try:
+            engine = scope.get_engine()
+        except scope.DatabaseNotConfigured:
+            engine = None
+        url = await run_in_threadpool(oura_v2.handle_callback, state, code, error, engine, http,
+                                      datetime.now(timezone.utc))
+        return RedirectResponse(url, status_code=302)
+    if not code:
+        raise HTTPException(400, "Missing code.")
     if not settings.oura_client_id or not settings.oura_client_secret:
         raise HTTPException(400, "Oura credentials not configured.")
 

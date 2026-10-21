@@ -1,6 +1,8 @@
 """/me endpoints against the local Supabase Postgres: profile, isolation, data deletion."""
 import uuid
 
+import jwt
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -164,3 +166,133 @@ def test_database_not_configured_is_503(monkeypatch):
         app.dependency_overrides.clear()
         scope.get_engine.cache_clear()
     assert r.status_code == 503
+
+
+# ── Account deletion ─────────────────────────────────────────────────────────
+# Supabase's admin API, Apple and Oura are fakes; nothing leaves the machine.
+
+class FakeServices:
+    def __init__(self, apple_sub=None):
+        self.apple_sub = apple_sub      # the Apple identity linked to the Rhythm account (None: email only)
+        self.code_sub = apple_sub       # who the re-authentication code belongs to
+        self.apple_down = False
+        self.oura_revoked_token = None
+        self.calls = []
+
+    def handler(self, request):
+        import httpx
+        from urllib.parse import parse_qs
+        self.calls.append((request.method, request.url.host, request.url.path))
+        if request.url.path.startswith("/auth/v1/admin/users/"):
+            assert request.headers["apikey"] == "service-key"
+            if request.method == "GET":
+                ids = [{"provider": "email", "identity_data": {}}]
+                if self.apple_sub:
+                    ids.append({"provider": "apple", "identity_data": {"sub": self.apple_sub}})
+                return httpx.Response(200, json={"identities": ids})
+            return httpx.Response(200, json={})
+        if request.url.host == "appleid.apple.com":
+            if self.apple_down:
+                return httpx.Response(503)
+            form = parse_qs(request.content.decode())
+            claims = jwt.decode(form["client_secret"][0], options={"verify_signature": False})
+            assert claims["sub"] == "co.findrhythm.app" and claims["aud"] == "https://appleid.apple.com"
+            if request.url.path == "/auth/token":
+                if form["code"] == ["used"]:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                id_token = jwt.encode({"iss": "https://appleid.apple.com", "aud": "co.findrhythm.app",
+                                       "sub": self.code_sub}, "x" * 32, algorithm="HS256")
+                return httpx.Response(200, json={"access_token": "a", "refresh_token": "apple-refresh", "id_token": id_token})
+            assert form["token"] == ["apple-refresh"]
+            return httpx.Response(200)
+        if request.url.host == "api.ouraring.com" and request.url.path == "/oauth/revoke":
+            self.oura_revoked_token = request.url.params["access_token"]
+            return httpx.Response(200)
+        return httpx.Response(404)
+
+
+@pytest.fixture
+def services(monkeypatch):
+    import httpx
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import serialization
+    from backend.integrations import secrets
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from backend.config import settings
+    from backend.routers.me import get_http
+    pem = ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    for k, v in {"supabase_url": "http://supabase.test", "supabase_service_role_key": "service-key",
+                 "apple_team_id": "TEAM", "apple_key_id": "KEY", "apple_private_key": pem.replace("\n", "\\n"),
+                 "token_encryption_key": Fernet.generate_key().decode()}.items():
+        monkeypatch.setattr(settings, k, v)
+    secrets._fernet.cache_clear()
+    fake = FakeServices()
+    client = httpx.Client(transport=httpx.MockTransport(fake.handler))
+    app.dependency_overrides[get_http] = lambda: client
+    yield fake
+    client.close()
+    secrets._fernet.cache_clear()
+
+
+def _real_oura_token(pg_engine, uid):
+    from backend.integrations import secrets
+    with pg_engine.begin() as conn:
+        conn.execute(text("update public.connections set access_token_enc = :t where user_id = :u and provider = 'oura'"),
+                     {"t": secrets.encrypt("oura-access"), "u": uid})
+
+
+def _delete(api, uid, **body):
+    return api.request("DELETE", "/me", headers=auth(uid), json={"confirm": True, **body})
+
+
+def test_deleting_an_email_account_removes_everything_and_the_sign_in(api, pg_engine, make_user, services):
+    a, b = make_user(), make_user()
+    with pg_engine.begin() as conn:
+        _seed(conn, a)
+        _seed(conn, b)
+    _real_oura_token(pg_engine, a)
+    assert api.request("DELETE", "/me", headers=auth(a), json={"confirm": False}).status_code == 400
+    r = _delete(api, a)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"account_deleted": True, "oura_revoked": True}
+    assert services.oura_revoked_token == "oura-access"                               # Oura asked to revoke
+    assert ("DELETE", "supabase.test", f"/auth/v1/admin/users/{a}") in services.calls  # the sign-in itself
+    with pg_engine.connect() as conn:
+        assert set(_count(conn, a).values()) == {0}
+        assert set(_count(conn, b).values()) == {1}                                    # nobody else touched
+
+
+def test_apple_accounts_must_reconfirm_and_tokens_are_revoked_before_anything_is_deleted(
+        api, pg_engine, make_user, services):
+    a = make_user()
+    services.apple_sub = services.code_sub = "apple-123"
+    with pg_engine.begin() as conn:
+        _seed(conn, a)
+
+    assert _delete(api, a).status_code == 428                                          # no Apple confirmation
+    assert _delete(api, a, apple_authorization_code="used").status_code == 400         # Apple refused the code
+    services.code_sub = "someone-else"
+    assert _delete(api, a, apple_authorization_code="fresh").status_code == 403        # a different Apple ID
+    services.code_sub, services.apple_down = "apple-123", True
+    assert _delete(api, a, apple_authorization_code="fresh").status_code == 502        # Apple unreachable
+    with pg_engine.connect() as conn:
+        assert set(_count(conn, a).values()) == {1}                                    # nothing deleted yet
+
+    services.apple_down = False
+    r = _delete(api, a, apple_authorization_code="fresh")
+    assert r.status_code == 200 and r.json()["oura_revoked"] is False                 # undecryptable token: not
+    assert ("POST", "appleid.apple.com", "/auth/revoke") in services.calls            # confirmed, but still deleted
+    with pg_engine.connect() as conn:
+        assert set(_count(conn, a).values()) == {0}
+
+
+def test_account_deletion_unconfigured_is_503_and_deletes_nothing(api, pg_engine, make_user, services, monkeypatch):
+    from backend.config import settings
+    monkeypatch.setattr(settings, "supabase_service_role_key", "")
+    a = make_user()
+    with pg_engine.begin() as conn:
+        _seed(conn, a)
+    assert _delete(api, a).status_code == 503
+    with pg_engine.connect() as conn:
+        assert set(_count(conn, a).values()) == {1}

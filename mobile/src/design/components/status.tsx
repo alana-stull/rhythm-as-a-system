@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { Icon } from "../icons";
 import { CapacityDisplay, color as c, PastelKey, pastel, radius, space, stateColor } from "../tokens";
 import { Text } from "./Text";
@@ -14,6 +14,7 @@ const DEFAULT_LABEL: Partial<Record<CapacityDisplay, string>> = {
 };
 
 type StateBadgeProps = {
+  style?: StyleProp<ViewStyle>; // e.g. { alignSelf: "center" } when the badge sits in a row
   state: CapacityDisplay;
   source?: string;
   label?: string;
@@ -21,7 +22,7 @@ type StateBadgeProps = {
   onPress?: () => void;
 };
 
-export function StateBadge({ state, source, label, size = "md", onPress }: StateBadgeProps) {
+export function StateBadge({ state, source, label, size = "md", onPress, style }: StateBadgeProps) {
   const col = stateColor[state];
   const isEmpty = state === "Insufficient";
   const text = label ?? DEFAULT_LABEL[state] ?? state;
@@ -47,10 +48,10 @@ export function StateBadge({ state, source, label, size = "md", onPress }: State
   );
 
   if (!onPress) {
-    return <View accessible accessibilityLabel={a11y} style={styles.wrap}>{body}</View>;
+    return <View accessible accessibilityLabel={a11y} style={[styles.wrap, style]}>{body}</View>;
   }
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} style={styles.wrap}>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={a11y} style={[styles.wrap, style]}>
       {body}
     </Pressable>
   );
@@ -142,10 +143,10 @@ const styles = StyleSheet.create({
   badgeEmpty: { borderWidth: 1, borderStyle: "dashed", borderColor: c.dashed, backgroundColor: c.surface },
   dot: { width: 7, height: 7, borderRadius: 4 },
   dotSm: { width: 6, height: 6, borderRadius: 3 },
+  // No alignSelf: in a row the chip follows the row's alignment (centered).
   tag: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     gap: 6,
     borderRadius: radius.tag,
     paddingVertical: 4,

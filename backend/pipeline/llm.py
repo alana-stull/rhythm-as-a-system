@@ -51,10 +51,10 @@ Rules:
 - Use only the facts given. Never add numbers, times, causes or details that aren't in the facts.
 - Keep every number and time exactly as given.
 - One or two short sentences, under 160 characters. Suggest, don't dictate.
-- No medical, diagnostic or clinical language. No exclamation marks. Never say "score".
+- No medical, diagnostic or clinical language. No exclamation marks or em dashes. Never say "score".
 - Reply as JSON: {"text": "...", "highlight": "<exact substring of text to emphasize, or null>"}"""
 
-_BANNED = re.compile(r"\b(diagnos\w*|symptom\w*|clinical|medical|disorder|burnout|anxiety|depress\w*|score)\b|!", re.I)
+_BANNED = re.compile(r"\b(diagnos\w*|symptom\w*|clinical|medical|disorder|burnout|anxiety|depress\w*|score)\b|!|\u2014", re.I)
 
 
 class Completer(Protocol):

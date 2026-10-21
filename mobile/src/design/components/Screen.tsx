@@ -83,7 +83,8 @@ export function ScreenHeader({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: c.cream },
   header: { paddingHorizontal: space.gutter, paddingTop: space.xs, paddingBottom: space.sm },
-  content: { paddingHorizontal: space.gutter, paddingBottom: space.xxl, gap: space.sm },
+  // flexGrow lets a screen pin its last item to the bottom (marginTop: "auto") when content is short.
+  content: { flexGrow: 1, paddingHorizontal: space.gutter, paddingBottom: space.xxl, gap: space.sm },
   back: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: minTouch - 12, alignSelf: "flex-start" },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
 });

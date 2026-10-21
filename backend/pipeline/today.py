@@ -10,9 +10,9 @@ from sqlalchemy import Engine
 from backend.db import plan_blocks, tasks
 from backend.db.scope import privileged, user_scope
 from backend.engine._util import source_name
-from backend.engine.types import Assessment, EvidenceKind, Pathway
+from backend.engine.types import Assessment, EvidenceKind, Pathway, Status
 from backend.pipeline import llm
-from backend.pipeline.context import capacity_context
+from backend.pipeline.context import capacity_context, insufficient_context
 from backend.pipeline.recommend import recommend
 from backend.pipeline.recompute import DayResult, recompute_day
 from backend.pipeline.windows import Window, open_windows
@@ -59,7 +59,7 @@ def _schedule(r: DayResult, blocks: list[dict[str, Any]], events: list[dict[str,
     } for e in events if not e["all_day"] and e["starts_at"] >= now]
     items += [{
         "id": str(b["id"]), "kind": "rhythm", "source": "rhythm", "external_id": None, "title": b["title"],
-        "starts_at": b["starts_at"], "ends_at": b["ends_at"], "area_id": None,
+        "starts_at": b["starts_at"], "ends_at": b["ends_at"], "area_id": str(b["area_id"]) if b.get("area_id") else None,
     } for b in blocks if b["kind"] in SHOWN_PLAN_KINDS and b["starts_at"] >= now]
     return sorted(items, key=lambda i: i["starts_at"])[:SCHEDULE_PREVIEW]
 
@@ -90,7 +90,8 @@ def build_today(engine: Engine, user_id: uuid.UUID, now: dt.datetime,
         blocks = plan_blocks.blocks_between(conn, user_id, day.day_start, day.day_end)
         events = plan_blocks.external_events_between(conn, user_id, day.day_start, day.day_end)
 
-    context = capacity_context(a)
+    # Assessed or uncertain: why it looks this way. Not enough evidence: what's missing.
+    context = insufficient_context(a) if a.status == Status.INSUFFICIENT_EVIDENCE else capacity_context(a)
     if context:
         _remember_context(engine, user_id, r, context)
     rec = recommend(a, top, windows_for(r, blocks), day.local_date)

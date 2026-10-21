@@ -107,7 +107,7 @@ def get_plan(start: dt.date | None = None, days: int = Query(1, ge=1, le=42),
                       starts_at=e["starts_at"], ends_at=e["ends_at"], all_day=e["all_day"], area_id=e["area_id"],
                       task_id=None, editable=False, completed=False) for e in events]
     items += [PlanItem(id=b["id"], kind=b["kind"], source="rhythm", external_id=None, title=b["title"],
-                       starts_at=b["starts_at"], ends_at=b["ends_at"], all_day=False, area_id=None,
+                       starts_at=b["starts_at"], ends_at=b["ends_at"], all_day=False, area_id=b["area_id"],
                        task_id=b["task_id"], editable=True, completed=b["completed_at"] is not None) for b in blocks]
     items.sort(key=lambda i: i.starts_at)
 
@@ -129,6 +129,7 @@ class BlockCreate(BaseModel):
     kind: Literal["event", "protected", "task"]
     title: str | None = Field(default=None, min_length=1, max_length=200)
     task_id: uuid.UUID | None = None
+    area_id: uuid.UUID | None = None
     starts_at: dt.datetime
     ends_at: dt.datetime
 
@@ -146,11 +147,23 @@ class BlockCreate(BaseModel):
 
 
 class BlockUpdate(BaseModel):
+    """Edit any of a block's details. Only fields present change; null clears title or tag."""
     model_config = ConfigDict(extra="forbid")
+    kind: Literal["event", "protected"] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
+    area_id: uuid.UUID | None = None
     starts_at: dt.datetime | None = None
     ends_at: dt.datetime | None = None
     completed: bool | None = None
+
+    @model_validator(mode="after")
+    def _valid(self):
+        for t in (self.starts_at, self.ends_at):
+            if t is not None and t.tzinfo is None:
+                raise ValueError("times must be timezone-aware")
+        if self.starts_at and self.ends_at and not (self.starts_at < self.ends_at <= self.starts_at + dt.timedelta(hours=24)):
+            raise ValueError("blocks must end after they start, within a day")
+        return self
 
 
 @router.post("/blocks", response_model=PlanItem, status_code=status.HTTP_201_CREATED)
@@ -160,7 +173,7 @@ def create_block(body: BlockCreate, user: CurrentUser = Depends(get_current_user
         with user_scope(engine, user.id) as conn:
             b = records.create_record(conn, user.id, records.BLOCKS, body.model_dump())
     except IntegrityError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Task not found.") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Task or tag not found.") from None
     return _item(b)
 
 
@@ -174,7 +187,9 @@ def update_block(block_id: uuid.UUID, body: BlockUpdate, user: CurrentUser = Dep
         with user_scope(engine, user.id) as conn:
             b = records.update_record(conn, user.id, records.BLOCKS, block_id, values)
     except IntegrityError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Blocks must end after they start.") from None
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "That change isn't valid (an event needs a title, blocks must end after they start, "
+                            "and tags must be yours).") from None
     if b is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Block not found.")
     return _item(b)
@@ -191,5 +206,5 @@ def delete_block(block_id: uuid.UUID, user: CurrentUser = Depends(get_current_us
 
 def _item(b: dict) -> PlanItem:
     return PlanItem(id=b["id"], kind=b["kind"], source="rhythm", external_id=None, title=b["title"],
-                    starts_at=b["starts_at"], ends_at=b["ends_at"], all_day=False, area_id=None,
+                    starts_at=b["starts_at"], ends_at=b["ends_at"], all_day=False, area_id=b["area_id"],
                     task_id=b["task_id"], editable=True, completed=b["completed_at"] is not None)

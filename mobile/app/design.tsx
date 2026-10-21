@@ -46,7 +46,7 @@ const STATES: { state: CapacityDisplay; source?: string; label?: string }[] = [
   { state: "Overloaded", source: "Apple Health + calendar" },
   { state: "Uncertain", source: "signals disagree" },
   { state: "Insufficient" },
-  { state: "Insufficient", label: "No data yet — how are you feeling?" },
+  { state: "Insufficient", label: "No data yet, how are you feeling?" },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -145,7 +145,7 @@ export default function Design() {
           <OptionRow key={k} label={l} selected={opt === k} onPress={() => setOpt(k)} />
         ))}
         <OptionRow multi label="Understanding my capacity" selected={!!multi.capacity} onPress={() => setMulti((m) => ({ ...m, capacity: !m.capacity }))} />
-        <CollapsedQuestionRow question="How much energy do you have today?" answer="3 of 5 — Middling" onPress={() => {}} />
+        <CollapsedQuestionRow question="How much energy do you have today?" answer="3 of 5, Middling" onPress={() => {}} />
         <PastelPicker value={pk} onChange={setPk} />
         <Card><ToggleRow label="Daily check-in reminder" detail="Each morning, if you haven't logged." value={toggle} onChange={setToggle} /></Card>
       </Section>

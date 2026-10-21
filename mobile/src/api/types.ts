@@ -10,6 +10,7 @@ export interface Profile {
   display_name: string | null;
   timezone: string;
   onboarding_completed: boolean;
+  onboarding_step: string | null;
   onboarding_answers: Record<string, unknown>;
   preferred_health_source: "oura" | "apple_health" | null;
   ai_task_titles_consented: boolean;
@@ -27,6 +28,7 @@ export interface Task {
   completed_at: string | null;
   times_deferred: number;
   first_focus_on: string | null;
+  source?: string;
 }
 
 export interface Today {

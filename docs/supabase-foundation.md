@@ -69,7 +69,7 @@ All three scripts are exercised by `backend/tests/test_supabase_scripts.py` agai
 **Email code (works locally now):** Authentication → Providers → Email: enabled, "Confirm email" off for OTP-first sign-in, OTP length 6. Authentication → Email Templates → Magic Link and Confirm signup: use the body of `supabase/templates/sign_in_code.html` (it shows `{{ .Token }}` instead of a link). Production needs custom SMTP (the built-in sender is rate-limited) before TestFlight.
 
 **Sign in with Apple (when the Apple Developer account is ready):**
-1. Apple Developer → Identifiers: App ID for the iOS bundle with "Sign in with Apple" enabled. Current `mobile/app.json` bundle ID: `com.rhythm.mobile` (confirm it is the one you want before registering).
+1. Apple Developer → Identifiers: App ID for the iOS bundle with "Sign in with Apple" enabled. Bundle ID (in `mobile/app.json`): `co.findrhythm.app`.
 2. For web sign-in later: a Services ID, plus a Sign in with Apple key (.p8), your Team ID and Key ID.
 3. Supabase → Authentication → Providers → Apple: enable; Client IDs = the bundle ID (and Services ID for web); enter the secret generated from the .p8 key directly in the dashboard.
 4. Native iOS sign-in needs an EAS development build (Expo Go can't use your bundle ID).

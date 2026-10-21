@@ -13,7 +13,9 @@ export function Text({ variant = "body", color, style, ...rest }: Props) {
     <RNText
       maxFontSizeMultiplier={role.maxScale}
       {...rest}
-      style={[role.style, { color: color ?? c.ink }, style]}
+      // Explicit 0 unless the role sets its own: iOS (new architecture) can otherwise
+      // carry stray kerning into text.
+      style={[{ letterSpacing: 0 }, role.style, { color: color ?? c.ink }, style]}
     />
   );
 }

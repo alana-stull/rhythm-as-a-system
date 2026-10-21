@@ -24,14 +24,18 @@ import {
   TextField,
 } from "../../src/design";
 import { useEventTitles } from "../../src/integrations/calendar";
+import { useSession } from "../../src/auth/SessionProvider";
 import { CheckinSheet } from "../../src/today/CheckinSheet";
 import { useToday } from "../../src/today/useToday";
 
 const MAX_PRIORITIES = 3; // Top 3 (tasks.priority_rank 1–3)
 
-function greeting(d: Date) {
+// Local time of day, with the person's first name when we have one.
+function greeting(d: Date, displayName?: string | null) {
   const h = d.getHours();
-  return h < 12 ? "Good morning." : h < 17 ? "Good afternoon." : "Good evening.";
+  const part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const first = displayName?.trim().split(/\s+/)[0];
+  return first ? `${part}, ${first}.` : `${part}.`;
 }
 
 // "2:00" / "3:30" — the boards' clock style.
@@ -60,6 +64,7 @@ function Highlighted({ text, highlight }: { text: string; highlight: string | nu
 
 export default function Today() {
   const router = useRouter();
+  const { profile } = useSession();
   const { data, setData, areas, error, refreshing, reload } = useToday();
   const titles = useEventTitles(data?.schedule.upcoming ?? []);
   const [draft, setDraft] = useState("");
@@ -89,7 +94,7 @@ export default function Today() {
   const header = (
     <ScreenHeader
       overline={now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
-      title={greeting(now)}
+      title={greeting(now, profile?.display_name)}
     />
   );
 
@@ -117,19 +122,24 @@ export default function Today() {
 
   return (
     <Screen header={header} gap={space.lg} refreshing={refreshing} onRefresh={() => reload(true)}>
-      <Card>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs }}>
+      {state === "Insufficient" ? (
+        // Not enough evidence: say what's missing and offer the check-in here, not in a pill.
+        <Card>
           <Eyebrow>How you're doing</Eyebrow>
-          <StateBadge
-            state={state}
-            size="sm"
-            label={state === "Insufficient" && !cap.checked_in_today ? "No data yet — how are you feeling?" : undefined}
-            onPress={() => setSheet(true)}
-          />
-        </View>
-        {/* Why capacity looks this way. "What matters now" is what to do about it. */}
-        {cap.context && <Text style={{ marginTop: 10 }}>{cap.context}</Text>}
-      </Card>
+          {cap.context && <Text style={{ marginTop: 10 }}>{cap.context}</Text>}
+          <Button label="Check in" size="sm" variant="secondary" onPress={() => setSheet(true)}
+                  accessibilityHint="Opens a quick check-in" style={{ alignSelf: "flex-start", marginTop: space.sm }} />
+        </Card>
+      ) : (
+        <Card>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs }}>
+            <Eyebrow>How you're doing</Eyebrow>
+            <StateBadge state={state} size="sm" onPress={() => setSheet(true)} style={{ alignSelf: "center" }} />
+          </View>
+          {/* Why capacity looks this way. "What matters now" is what to do about it. */}
+          {cap.context && <Text style={{ marginTop: 10 }}>{cap.context}</Text>}
+        </Card>
+      )}
 
       {wmn && (
         wmn.kind === "check_in" ? (

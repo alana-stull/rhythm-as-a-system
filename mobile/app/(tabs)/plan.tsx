@@ -1,6 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { AppState, Pressable, View } from "react-native";
 import {
   type Area,
   createBlock,
@@ -20,6 +20,7 @@ import {
   CapacityDisplay,
   FAB,
   Icon,
+  MonthGrid,
   Screen,
   ScreenHeader,
   SegmentedControl,
@@ -33,9 +34,11 @@ import {
   space,
   stateColor,
 } from "../../src/design";
+import { syncThen } from "../../src/integrations/autoSync";
 import { useEventTitles } from "../../src/integrations/calendar";
 import { addDays, clock, clockAmPm, fromIso, iso, startOfWeek } from "../../src/lib/dates";
 import { toTag } from "../../src/lib/tags";
+import { BlockEditor } from "../../src/plan/BlockEditor";
 
 type View_ = "day" | "week" | "month";
 const START_HOUR = 7, END_HOUR = 22, ROW = 44;
@@ -78,10 +81,7 @@ export default function Plan() {
   const [areas, setAreas] = useState<Record<string, Area>>({});
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Block | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newStart, setNewStart] = useState<Date | null>(null);
-  const [newMinutes, setNewMinutes] = useState(60);
+  const [editor, setEditor] = useState<{ open: boolean; editing: PlanItem | null }>({ open: false, editing: null });
 
   const today = new Date();
   const isToday = iso(date) === iso(today);
@@ -92,8 +92,9 @@ export default function Plan() {
     return [first, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()];
   }, [view, date]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<void> => {
     try {
+      await syncThen(4000, () => { load(); });  // current calendar events before drawing the day
       const [p, a] = await Promise.all([getPlan(iso(rangeStart), rangeDays), listAreas()]);
       setData(p);
       setAreas(Object.fromEntries(a.map((x) => [x.id, x])));
@@ -102,7 +103,12 @@ export default function Plan() {
       setError(e instanceof Error ? e.message : "Couldn't load your plan.");
     }
   }, [rangeStart, rangeDays]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    load();
+    // Back from the background (say, after adding an event in Calendar): sync and redraw.
+    const sub = AppState.addEventListener("change", (st) => st === "active" && load());
+    return () => sub.remove();
+  }, [load]));
 
   const titles = useEventTitles(data?.items ?? []);
   const titleOf = (i: PlanItem) =>
@@ -130,15 +136,6 @@ export default function Plan() {
   const placed = layout(blocks);
   const dayTasks = (data?.tasks ?? []).filter((t) => (t.focus_on ?? t.due_on) === iso(date));
   const openPriorities = dayTasks.filter((t) => !t.completed_at && t.priority_rank !== null);
-
-  const startOptions = useMemo(() => {
-    const base = new Date(date);
-    if (isToday) {
-      base.setTime(Date.now());
-      base.setMinutes(base.getMinutes() < 30 ? 30 : 60, 0, 0);
-    } else base.setHours(9, 0, 0, 0);
-    return Array.from({ length: 6 }, (_, i) => new Date(+base + i * 30 * 60000)).filter((d) => d.getHours() < END_HOUR);
-  }, [date, isToday]);
 
   const dayView = (
     <>
@@ -244,7 +241,7 @@ export default function Plan() {
       <Text variant="section" accessibilityRole="header">{date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}</Text>
       <Card padding="list">
         {selectedItems.length + selectedTasks.length === 0 && (
-          <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing scheduled yet — wide open.</Text>
+          <Text variant="meta" color={color.muted} style={{ padding: space.sm }}>Nothing scheduled yet, wide open.</Text>
         )}
         {selectedItems.map((i) => (
           <Pressable key={i.id} onPress={() => setSelected({ key: i.id, kind: i.kind, title: titleOf(i), item: i, start: new Date(i.starts_at),
@@ -271,8 +268,6 @@ export default function Plan() {
   );
 
   // ── Month ───────────────────────────────────────────────────────────────────
-  const monthFirst = new Date(date.getFullYear(), date.getMonth(), 1);
-  const monthDays = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   const states = Object.fromEntries((data?.days ?? []).map((d) => [d.date, d]));
   const stateOf = (d: string): CapacityDisplay | null => {
     const s = states[d];
@@ -294,31 +289,17 @@ export default function Plan() {
           <Icon name="chevronRight" size={18} color={color.muted} />
         </Pressable>
       </View>
-      <View>
-        <View style={{ flexDirection: "row" }}>
-          {["S", "M", "T", "W", "T", "F", "S"].map((w, i) => <Text key={i} variant="meta" color={color.muted} style={{ flex: 1, textAlign: "center" }}>{w}</Text>)}
-        </View>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
-          {Array.from({ length: monthFirst.getDay() }, (_, i) => <View key={`p${i}`} style={{ width: `${100 / 7}%` }} />)}
-          {Array.from({ length: monthDays }, (_, i) => {
-            const d = new Date(date.getFullYear(), date.getMonth(), i + 1);
-            const s = stateOf(iso(d));
-            const isSel = iso(d) === iso(date), isTod = iso(d) === iso(today);
-            return (
-              <View key={i} style={{ width: `${100 / 7}%`, padding: 2 }}>
-                <Pressable onPress={() => setDate(d)} accessibilityRole="button" accessibilityState={{ selected: isSel }}
-                           accessibilityLabel={`${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })}${s ? `, ${s}` : ""}`}
-                           style={{ height: 44, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 3,
-                                    backgroundColor: isSel ? color.amberSoft : color.surface,
-                                    borderWidth: isTod ? 1.5 : 1, borderColor: isTod ? color.amber : isSel ? "rgba(184,119,42,0.4)" : "rgba(27,27,29,0.07)" }}>
-                  <Text variant="metaStrong" color={isTod ? color.amberText : color.ink}>{i + 1}</Text>
-                  {s && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: stateColor[s].base }} />}
-                </Pressable>
-              </View>
-            );
-          })}
-        </View>
-      </View>
+      <MonthGrid
+        month={date}
+        today={iso(today)}
+        selected={iso(date)}
+        onSelect={(d) => setDate(fromIso(d))}
+        marker={(d) => {
+          const st = stateOf(d);
+          return st ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: stateColor[st].base }} /> : null;
+        }}
+        label={(d) => stateOf(d) ?? "no Rhythm state"}
+      />
       <Card>
         <Text variant="eyebrow" color={color.muted} style={{ marginBottom: space.xs }}>
           {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
@@ -348,7 +329,7 @@ export default function Plan() {
       header={<ScreenHeader title="Plan" right={
         <SegmentedControl<View_> value={view} onChange={setView}
                                  options={[{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }]} />} />}
-      overlay={<FAB onPress={() => { setNewStart(null); setNewTitle(""); setAdding(true); }} accessibilityLabel="Add commitment" />}
+      overlay={<FAB onPress={() => setEditor({ open: true, editing: null })} accessibilityLabel="Add to plan" />}
     >
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
       {view === "day" ? dayView : view === "week" ? weekView : monthView}
@@ -360,13 +341,13 @@ export default function Plan() {
               {clockAmPm(sel.start)} – {clockAmPm(sel.end)}
             </Text>
             <Text style={{ marginBottom: space.sm }}>
-              {sel.kind === "calendar" ? "Synced — editing happens in your calendar app."
+              {sel.kind === "calendar" ? "Synced. Editing happens in your calendar app."
                 : sel.kind === "open" ? "Nothing is scheduled here yet."
-                : sel.kind === "protected" ? "Reserved — nothing gets auto-suggested here."
+                : sel.kind === "protected" ? "Reserved. Nothing gets auto-suggested here."
                 : sel.kind === "task" ? "A task you scheduled here."
-                : "Created in Rhythm — yours to move or remove."}
+                : "Created in Rhythm, yours to move or remove."}
             </Text>
-            {(sel.kind === "event" || sel.kind === "commitment" || sel.kind === "task") && sel.item?.editable && (
+            {(sel.kind === "event" || sel.kind === "commitment" || sel.kind === "protected" || sel.kind === "task") && sel.item?.editable && (
               <View style={{ flexDirection: "row", gap: space.xs }}>
                 <Button label="− 30 min" variant="secondary" style={{ flex: 1 }} onPress={() => shift(-30)} />
                 <Button label="+ 30 min" variant="secondary" style={{ flex: 1 }} onPress={() => shift(30)} />
@@ -383,6 +364,9 @@ export default function Plan() {
                   await deleteBlock(sel.item!.id);
                 })} />
               </>
+            )}
+            {(sel.kind === "event" || sel.kind === "protected") && sel.item?.editable && (
+              <Button label="Edit" variant="secondary" onPress={() => { const item = sel.item!; setSelected(null); setEditor({ open: true, editing: item }); }} />
             )}
             {(sel.kind === "event" || sel.kind === "commitment") && sel.item?.editable && (
               <Button label="Delete" variant="ghost" onPress={() => run(() => deleteBlock(sel.item!.id))} style={{ alignSelf: "center" }} />
@@ -404,39 +388,23 @@ export default function Plan() {
         )}
       </BottomSheet>
 
-      <BottomSheet visible={adding} onClose={() => setAdding(false)} title="Add commitment">
-        <TextField value={newTitle} onChangeText={setNewTitle} placeholder="What is it?" accessibilityLabel="Commitment" autoFocus />
-        <Text variant="eyebrow" color={color.muted} style={{ marginTop: space.md, marginBottom: space.xs }}>
-          When · {date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-        </Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {startOptions.map((d) => {
-            const on = newStart && +newStart === +d;
-            return (
-              <Pressable key={+d} onPress={() => setNewStart(d)} accessibilityRole="radio" accessibilityState={{ selected: !!on }}
-                         style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.control, borderWidth: 1,
-                                  borderColor: on ? color.ink : color.borderStrong, backgroundColor: on ? color.ink : "transparent" }}>
-                <Text variant="metaStrong" color={on ? color.onInk : color.ink}>{clockAmPm(d)}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Text variant="eyebrow" color={color.muted} style={{ marginTop: space.md, marginBottom: space.xs }}>How long</Text>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {[30, 60, 90].map((m) => (
-            <Pressable key={m} onPress={() => setNewMinutes(m)} accessibilityRole="radio" accessibilityState={{ selected: newMinutes === m }}
-                       style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.control, borderWidth: 1,
-                                borderColor: newMinutes === m ? color.ink : color.borderStrong,
-                                backgroundColor: newMinutes === m ? color.ink : "transparent" }}>
-              <Text variant="metaStrong" color={newMinutes === m ? color.onInk : color.ink}>{m} min</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Button label="Add" fullWidth disabled={!newTitle.trim() || !newStart} style={{ marginTop: space.lg }}
-                onPress={() => { setAdding(false); run(() => createBlock({ kind: "event", title: newTitle.trim(),
-                  starts_at: newStart!.toISOString(), ends_at: new Date(+newStart! + newMinutes * 60000).toISOString() })); }} />
-        <Button label="Cancel" variant="secondary" fullWidth onPress={() => setAdding(false)} style={{ marginTop: space.xs }} />
-      </BottomSheet>
+      <BlockEditor
+        visible={editor.open}
+        editing={editor.editing}
+        defaultDate={date}
+        areas={Object.values(areas)}
+        onClose={() => setEditor({ open: false, editing: null })}
+        onSave={(draft) => {
+          const editing = editor.editing;
+          setEditor({ open: false, editing: null });
+          run(() => (editing ? updateBlock(editing.id, draft) : createBlock(draft)));
+        }}
+        onDelete={editor.editing ? () => {
+          const id = editor.editing!.id;
+          setEditor({ open: false, editing: null });
+          run(() => deleteBlock(id));
+        } : undefined}
+      />
     </Screen>
   );
 }

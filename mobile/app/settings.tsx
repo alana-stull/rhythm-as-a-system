@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import {
   type Area,
   type ConnectionState,
@@ -28,9 +28,12 @@ import {
   TextField,
   ToggleRow,
   color,
+  minTouch,
   pastel,
+  radius,
   space,
 } from "../src/design";
+import { calendarAccess, disconnectCalendar, type CalendarAccess } from "../src/integrations/calendar";
 import { connectAppleHealth, connectCalendar, connectOura as connectOuraFlow } from "../src/integrations/connect";
 import { healthAvailable } from "../src/integrations/healthkit";
 
@@ -56,9 +59,12 @@ function synced(at: string | null) {
 
 export default function Settings() {
   const router = useRouter();
-  const { profile, signOut } = useSession();
+  const { profile, signOut, deleteAccount } = useSession();
+  const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [conns, setConns] = useState<Record<string, ConnectionStatus>>({});
   const [tags, setTags] = useState<Area[]>([]);
+  const [calAccess, setCalAccess] = useState<CalendarAccess | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reminder, setReminder] = useState(true);
@@ -69,6 +75,7 @@ export default function Settings() {
   const load = useCallback(async () => {
     try {
       const [c, t] = await Promise.all([getConnections(), listAreas()]);
+      setCalAccess(await calendarAccess().catch(() => null));
       setConns(Object.fromEntries(c.map((x) => [x.provider, x])));
       setTags(t);
     } catch (e) {
@@ -109,7 +116,7 @@ export default function Settings() {
       <View style={{ gap: space.xs, marginTop: space.md }}>
         <SectionHeader title="Connections" />
         <Text variant="meta" color={color.muted}>
-          Ongoing connections — Rhythm shows current status, not just whether something's linked.
+          Ongoing connections. Rhythm shows current status, not just whether something's linked.
         </Text>
         <ConnectionRow
           name="Oura"
@@ -130,9 +137,14 @@ export default function Settings() {
         <ConnectionRow
           name="Apple Calendar"
           status={status(cal)}
-          detail={synced(cal?.last_synced_at ?? null) ?? "Busy times only; event names stay on your phone."}
-          action={{ label: busy === "calendar" ? "Syncing…" : connected(cal) ? "Sync" : "Connect", onPress: connectCal,
-                    disabled: !!busy, variant: connected(cal) ? "secondary" : "primary" }}
+          detail={!connected(cal) && calAccess === "blocked"
+            ? "Calendar access is off for Rhythm. Turn it on in iOS Settings, then connect."
+            : synced(cal?.last_synced_at ?? null) ?? "Busy times only; event names stay on your phone. Updates on its own."}
+          action={connected(cal)
+            ? { label: "Off", variant: "secondary", onPress: run("calendar", () => disconnectCalendar()), disabled: !!busy }
+            : calAccess === "blocked"
+              ? { label: "Open Settings", variant: "secondary", onPress: () => Linking.openSettings() }
+              : { label: busy === "calendar" ? "Connecting…" : "Connect", onPress: connectCal, disabled: !!busy }}
         />
         <ConnectionRow name="Google Calendar" detail="Unavailable right now."
                        action={{ label: "Unavailable", variant: "secondary", disabled: true }} />
@@ -160,9 +172,43 @@ export default function Settings() {
       </View>
 
       <View style={{ gap: space.xs, marginTop: space.md }}>
-        <Button variant="secondary" label="Sign out" onPress={signOut} />
-        <Button variant="ghost" label="Delete account" disabled />
+        <Button variant="secondary" label="Sign out" onPress={signOut}
+                accessibilityHint="Signs out on this iPhone. Your connections stay as they are." />
+        <Button variant="ghost" label="Delete account" onPress={() => { setDeleteError(null); setDeleting("ask"); }} />
       </View>
+
+      <BottomSheet visible={!!deleting} onClose={() => deleting !== "busy" && setDeleting(null)} title="Delete your account?">
+        <View style={{ gap: space.sm }}>
+          <Text>
+            This permanently deletes your Rhythm account and everything in it: check-ins, tasks, plans, goals, health
+            readings and calendar busy times. Rhythm's access to Oura is revoked. This can't be undone.
+          </Text>
+          <Text variant="meta" color={color.muted}>
+            If you signed in with Apple, you'll confirm with Apple first. Apple Calendar and Apple Health access can be
+            turned off in iOS Settings.
+          </Text>
+          {deleteError && <Text variant="meta" color="#6B2F2A" accessibilityLiveRegion="polite">{deleteError}</Text>}
+          <Pressable
+            accessibilityRole="button" accessibilityLabel="Delete my account permanently" disabled={deleting === "busy"}
+            onPress={async () => {
+              setDeleting("busy");
+              setDeleteError(null);
+              try {
+                // Success signs this device out, which returns to the welcome screen.
+                if (!(await deleteAccount())) setDeleting("ask");
+              } catch (e) {
+                setDeleteError(e instanceof Error ? e.message : "Your account wasn't deleted. Try again.");
+                setDeleting("ask");
+              }
+            }}
+            style={({ pressed }) => [{ minHeight: minTouch, borderRadius: radius.button, backgroundColor: "#6B2F2A",
+                                       alignItems: "center", justifyContent: "center", marginTop: space.xs },
+                                     (pressed || deleting === "busy") && { opacity: 0.8 }]}>
+            <Text variant="button" color={color.white}>{deleting === "busy" ? "Deleting…" : "Delete my account"}</Text>
+          </Pressable>
+          <Button label="Cancel" variant="secondary" fullWidth disabled={deleting === "busy"} onPress={() => setDeleting(null)} />
+        </View>
+      </BottomSheet>
 
       <BottomSheet visible={sheet} onClose={() => setSheet(false)} title="New tag">
         <TextField value={name} onChangeText={setName} placeholder="Tag name" accessibilityLabel="Tag name" />

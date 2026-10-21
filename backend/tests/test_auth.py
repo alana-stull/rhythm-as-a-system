@@ -129,3 +129,20 @@ def test_auth_not_configured_is_503(monkeypatch):
         r = c.get("/me", headers={"Authorization": "Bearer x.y.z"})
     auth._default_verifier.cache_clear()
     assert r.status_code == 503
+
+
+def test_unreachable_signing_keys_are_503_never_a_sign_out():
+    """If Supabase's key endpoint is down, the app must not treat it as an invalid session (401 signs out)."""
+    from backend.auth import TokenVerifier
+
+    class Down:
+        def get_signing_key_from_jwt(self, token):
+            raise jwt.PyJWKClientConnectionError("timed out")
+
+    app.dependency_overrides[get_token_verifier] = lambda: TokenVerifier(issuer=ISSUER, jwks=Down())
+    try:
+        with TestClient(app) as c:
+            r = c.get("/me", headers={"Authorization": f"Bearer {make_token(USER)}"})
+    finally:
+        app.dependency_overrides.pop(get_token_verifier, None)
+    assert r.status_code == 503

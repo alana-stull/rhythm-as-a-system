@@ -45,8 +45,10 @@ def _day(value: Any) -> dt.date | None:
 def normalize_oura(readiness: list[dict[str, Any]], sleep: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Oura v2 `daily_readiness` documents + `sleep` periods → health days.
 
-    Sleep: the longest `long_sleep` period attributed to each day (Oura's `day`
-    is the day the person woke up). Resting HR uses that period's
+    Sleep: the main sleep period attributed to each day (Oura's `day` is the day
+    the person woke up): the longest `long_sleep`, or, on nights Oura only
+    recorded a shorter `sleep` period, the longest of those. Naps (`late_nap`)
+    and rest periods are never used. Resting HR uses that period's
     `lowest_heart_rate`, Oura's own overnight resting measure.
     """
     days: dict[dt.date, dict[str, Any]] = {}
@@ -59,13 +61,20 @@ def normalize_oura(readiness: list[dict[str, Any]], sleep: list[dict[str, Any]])
         days[d]["readiness"] = clean("readiness", r.get("score"))
         days[d]["record_id"] = r.get("id")
 
+    def duration(p: dict[str, Any]) -> float:
+        v = p.get("total_sleep_duration")
+        return v if isinstance(v, (int, float)) else 0
+
     main_sleep: dict[dt.date, dict[str, Any]] = {}
-    for s in sleep:
-        d = _day(s.get("day"))
-        if d is None or s.get("type") != "long_sleep":
-            continue
-        if d not in main_sleep or (s.get("total_sleep_duration") or 0) > (main_sleep[d].get("total_sleep_duration") or 0):
-            main_sleep[d] = s
+    for kind in ("long_sleep", "sleep"):  # "sleep" only fills days with no long_sleep
+        for s in sleep:
+            d = _day(s.get("day"))
+            if d is None or s.get("type") != kind:
+                continue
+            if kind == "sleep" and main_sleep.get(d, {}).get("type") == "long_sleep":
+                continue
+            if d not in main_sleep or duration(s) > duration(main_sleep[d]):
+                main_sleep[d] = s
     for d, s in main_sleep.items():
         row = days.setdefault(d, {"local_date": d})
         seconds = s.get("total_sleep_duration")

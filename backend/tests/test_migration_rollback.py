@@ -1,27 +1,37 @@
 """
 A failed migration leaves the database exactly as it was.
 
-Runs the real Alembic runner against the local stack as a role that can do
-everything 0001 needs except one hosted-sensitive privilege on auth.users
-(TRIGGER for the profile trigger, or REFERENCES for the profiles foreign key),
-and checks that nothing at all remains: no schema, version table, tables,
-functions, policies or trigger. Restores head afterwards.
+Destructive by design (drops and recreates the whole Rhythm schema), so it
+runs ONLY against an isolated, throwaway Postgres built from the same
+Supabase image as the local stack (`scripts/test-db.sh up`, port 54399). It
+refuses the development database outright and skips if the isolated one
+isn't running. Your development data is never touched.
+
+It runs the real Alembic runner as a role that can do everything 0001 needs
+except one hosted-sensitive privilege on auth.users (TRIGGER for the profile
+trigger, or REFERENCES for the profiles foreign key), and checks that nothing
+at all remains: no schema, version table, tables, functions, policies or
+trigger.
 """
+import os
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
 import psycopg
 import pytest
 
-from backend.tests.pg_support import pg_engine  # noqa: F401
+from backend.config import settings
 
 pytestmark = pytest.mark.postgres
 
 ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC = [str(ROOT / ".venv" / "bin" / "alembic"), "-c", str(ROOT / "backend" / "alembic.ini")]
-OWNER = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-OWNER_SA = "postgresql+psycopg://postgres:postgres@127.0.0.1:54322/postgres"  # for Alembic
-ADMIN = "postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres"  # local superuser: grants on auth.users
+ISOLATED_PORT = int(os.environ.get("RHYTHM_ISOLATED_DB_PORT", "54399"))
+DEV_PORT = urlparse(settings.database_url.replace("postgresql+psycopg", "postgresql", 1)).port or 54322
+OWNER = f"postgresql://postgres:postgres@127.0.0.1:{ISOLATED_PORT}/postgres"
+OWNER_SA = f"postgresql+psycopg://postgres:postgres@127.0.0.1:{ISOLATED_PORT}/postgres"  # for Alembic
+ADMIN = f"postgresql://supabase_admin:postgres@127.0.0.1:{ISOLATED_PORT}/postgres"  # superuser: grants on auth.users
 SIM = "rhythm_migrator_sim"
 
 
@@ -46,16 +56,18 @@ def _inventory() -> dict:
 EMPTY = {"public_tables": 0, "rhythm_private": 0, "functions": 0, "policies": 0, "trigger": 0}
 
 
+def test_isolated_database_is_never_the_development_database():
+    assert ISOLATED_PORT != DEV_PORT, "the destructive tests must not share a port with DATABASE_URL"
+
+
 @pytest.fixture
-def fresh_project(pg_engine):
-    """A never-migrated database (like the hosted project), restored to head afterwards."""
+def fresh_project():
+    """A never-migrated database (like the hosted project), on the isolated server only."""
+    assert ISOLATED_PORT != DEV_PORT, "refusing to run destructive tests against the development database"
     try:
-        psycopg.connect(ADMIN).close()
+        psycopg.connect(ADMIN, connect_timeout=3).close()
     except psycopg.Error:
-        pytest.skip("local supabase_admin not reachable")
-    with psycopg.connect(OWNER) as c:
-        if c.execute("select count(*) from public.profiles").fetchone()[0]:
-            pytest.skip("local database holds real data (someone has signed in); this test drops the whole schema")
+        pytest.skip(f"isolated test database not running on :{ISOLATED_PORT} (scripts/test-db.sh up)")
     assert _alembic(OWNER_SA, "downgrade", "base").returncode == 0
     with psycopg.connect(OWNER, autocommit=True) as c:
         c.execute("drop schema if exists rhythm_private cascade")  # only the empty version table remains
@@ -70,7 +82,7 @@ def fresh_project(pg_engine):
             c.execute("drop schema if exists rhythm_private cascade")
         restored = _alembic(OWNER_SA, "upgrade", "head")
         assert restored.returncode == 0, restored.stderr[-2000:]
-    assert "0002 (head)" in _alembic(OWNER_SA, "current").stdout
+    assert "0003 (head)" in _alembic(OWNER_SA, "current").stdout
 
 
 def _sim_role(*, trigger: bool, references: bool) -> str:
@@ -83,7 +95,7 @@ def _sim_role(*, trigger: bool, references: bool) -> str:
             c.execute(f"grant references on auth.users to {SIM}")
         if trigger:
             c.execute(f"grant trigger on auth.users to {SIM}")
-    return f"postgresql+psycopg://{SIM}:sim@127.0.0.1:54322/postgres"
+    return f"postgresql+psycopg://{SIM}:sim@127.0.0.1:{ISOLATED_PORT}/postgres"
 
 
 @pytest.mark.parametrize("missing", ["trigger", "references"])
@@ -101,4 +113,4 @@ def test_successful_migration_is_complete(fresh_project):
     inv = _inventory()
     assert inv["public_tables"] == 17 and inv["rhythm_private"] == 1 and inv["functions"] == 3
     assert inv["policies"] == 45 and inv["trigger"] == 1
-    assert "0002 (head)" in _alembic(OWNER_SA, "current").stdout
+    assert "0003 (head)" in _alembic(OWNER_SA, "current").stdout

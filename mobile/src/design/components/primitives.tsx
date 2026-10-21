@@ -173,6 +173,7 @@ const styles = StyleSheet.create({
   input: {
     fontFamily: fontFamily.sans,
     fontSize: type.body.style.fontSize,
+    letterSpacing: 0, // explicit: iOS text fields otherwise apply stray kerning while typing
     color: c.ink,
   },
   inputBoxed: {

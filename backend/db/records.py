@@ -33,9 +33,10 @@ RHYTHMS = Spec("recurring_items", ("id", "kind", "title", "cadence_note", "area_
                "created_at", "archived_at is null and kind in ('habit', 'routine')")
 HELPS = Spec("what_helps", ("id", "text", "sort_order", "created_at"), ("text", "sort_order"), ("text", "sort_order"),
              "sort_order, created_at")
-BLOCKS = Spec("plan_blocks", ("id", "kind", "task_id", "recurring_item_id", "title", "starts_at", "ends_at", "origin",
-                              "completed_at", "created_at"),
-              ("kind", "title", "starts_at", "ends_at", "task_id"), ("title", "starts_at", "ends_at", "completed_at"),
+BLOCKS = Spec("plan_blocks", ("id", "kind", "task_id", "recurring_item_id", "title", "area_id", "starts_at", "ends_at",
+                              "origin", "completed_at", "created_at"),
+              ("kind", "title", "area_id", "starts_at", "ends_at", "task_id"),
+              ("kind", "title", "area_id", "starts_at", "ends_at", "completed_at"),
               "starts_at", "skipped_at is null")
 
 

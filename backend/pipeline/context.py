@@ -81,3 +81,17 @@ def capacity_context(a: Assessment) -> str | None:
     if demand:
         return f"{demand[0].upper()}{demand[1:]}."
     return None
+
+
+def insufficient_context(a: Assessment) -> str:
+    """What Rhythm knows so far, then what's missing. Never implies a light day."""
+    if "capacity" in a.missing and "demand" in a.missing and not capacity_context(a):
+        text = "Rhythm doesn't have enough to read your day yet. A quick check-in is all it needs to start."
+    else:
+        missing = ("Rhythm doesn't know yet how much you have to give." if "capacity" in a.missing
+                   else "Rhythm doesn't know yet what today asks.")
+        known = capacity_context(a)
+        text = f"{known} {missing}" if known else missing
+    if a.demand.scheduled_minutes == 0:
+        text += " An empty calendar doesn't mean today is light."
+    return text

@@ -61,6 +61,18 @@ Screens (2026-10-12): onboarding has all nine steps saving real data (profile an
 
 "What matters now" no longer waits on OpenAI: the rules' sentence is returned at once and the model's wording (if enabled, in budget and valid) is generated after the response and shown on the next load. `scripts/dev-local.sh` disables model calls unless `RHYTHM_LOCAL_LLM=1`. The destructive migration-rollback test now skips when the local database holds real data.
 
+Simulator review fixes (2026-10-12, uncommitted):
+- Routing: one `destination()` for gate and entry (signed out → sign-in; onboarding unfinished → onboarding; finished → Today); onboarding saves `profiles.onboarding_step` and resumes there, restoring tags, brain-dump tasks and picked priorities. The local test account had been marked complete by the old placeholder onboarding and was reset locally.
+- Typography: explicit zero letter-spacing on text inputs and on text roles that don't set their own; welcome tagline spacing removed.
+- Today: greeting uses local time and the first name ("Good morning, Alana."), falling back to "Good morning.". Not enough evidence → no pill; the card explains what's missing (what Rhythm knows, then what it doesn't) with a Check in button; "What matters now" no longer repeats the check-in. An unconnected calendar is never described (tested); a connected empty one is "clear, but that doesn't mean today is light".
+- Plan: add/edit sheet with any date (default: the selected day), start time, length or end time, presets as shortcuts, commitment or protected time, optional tag; Edit on your own blocks. Local migration `0003` adds `plan_blocks.area_id` (own tags only); tagged blocks count in "Where the week went".
+- Destructive migration tests run only on an isolated throwaway Postgres (`scripts/test-db.sh up`, :54399, same Supabase image); they refuse the development database's port and skip if the isolated one isn't running.
+
+Oura and Insights (2026-10-12, uncommitted):
+- Oura: the registered redirect `/oura/callback` now completes per-user connections (signed state) and still serves the legacy flow without one; authorize and exchange use the same URI (`OURA_REDIRECT_URI`). Scope stays `daily`. First sync backfills 90 days. Sleep normalization falls back to Oura's shorter `sleep` period when a night has no `long_sleep` (naps and rest never count). Local backfill: 55 days with readings, Jul 29 to Oct 11; 21 days without readings at Oura stay empty.
+- Insights: readings and Rhythm states are separate. Past days get a Rhythm state only from their own evidence (check-in or tasks), assessed as of the end of that day, and never from wearable data alone; stored states are never rewritten (`pipeline/history.py`). Historical calendar demand isn't used (a later sync reads as stale for a past day).
+- Trend chart (1W/1M/3M): Oura readiness on one 0–100 axis with gaps kept, Rhythm states in named lanes on the same days. Breakdown: top two states, assessed / uncertain / reading-only / no-data days kept apart, a summary that won't generalize from fewer than 5 assessed days or misstate a tie. Month calendar with navigation; shared `MonthGrid` (seven explicit columns) fixes the missing Saturdays in Insights and Plan. Day sheet: Oura readings, check-ins, calendar, confidence, why, disagreements, with explicit "none" lines.
+
 Still not built: check-in reminder (toggle only); full account deletion; editing goals/rhythms in place (add and remove only); per-calendar tag settings UI.
 
 Blockers before real-world testing

@@ -9,18 +9,21 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import Engine
 from sqlalchemy.exc import IntegrityError
 
 from backend.auth import CurrentUser, get_current_user
-from backend.db import deletion, profiles
+from backend.db import connections, deletion, profiles
 from backend.db.scope import engine_or_503, privileged, user_scope
+from backend.integrations import apple, oura, supabase_admin
 
 router = APIRouter()
 
@@ -156,3 +159,73 @@ def delete_my_data(confirm: bool = Query(False, description="Must be true."),
         note="Your Rhythm data was deleted. Your sign-in account still exists; "
              "account deletion is a separate step.",
     )
+
+
+# ── Account deletion ──────────────────────────────────────────────────────────
+# Everything Rhythm holds about the person, then their sign-in account itself.
+# Order matters: anything that can fail and leave the person stranded (Apple
+# re-authentication) happens before anything is deleted; deletion steps are
+# idempotent, so a failed run can simply be retried.
+
+log = logging.getLogger(__name__)
+get_http = oura.http_client  # one outbound HTTP client dependency, overridden in tests
+
+
+class AccountDeletion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: bool
+    # Fresh, single-use code from re-authenticating with Apple; required if the account uses Sign in with Apple.
+    apple_authorization_code: str | None = Field(default=None, max_length=2000)
+
+
+class AccountDeletionOut(BaseModel):
+    account_deleted: bool
+    oura_revoked: bool | None  # None: Oura was never connected
+
+
+@router.delete("", response_model=AccountDeletionOut)
+def delete_account(body: AccountDeletion, user: CurrentUser = Depends(get_current_user),
+                   engine: Engine = Depends(engine_or_503), http: httpx.Client = Depends(get_http)):
+    if not body.confirm:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Confirm to delete your account.")
+    if not supabase_admin.configured():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Account deletion isn't available right now.")
+
+    # 1. Apple: prove it's the same Apple account, then revoke its tokens (Apple requires this).
+    try:
+        apple_sub = supabase_admin.apple_subject(http, user.id)
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Couldn't reach sign-in. Nothing was deleted; try again.") from None
+    if apple_sub:
+        if not body.apple_authorization_code:
+            raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Confirm with Apple to delete your account.")
+        if not apple.configured():
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Account deletion isn't available right now.")
+        try:
+            sub, token = apple.redeem(http, body.apple_authorization_code)
+            if sub != apple_sub:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "That Apple account doesn't match this Rhythm account.")
+            apple.revoke(http, token)
+        except apple.AppleRejected:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Apple didn't confirm. Nothing was deleted; try again.") from None
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Couldn't reach Apple. Nothing was deleted; try again.") from None
+
+    # 2. Oura: ask Oura to revoke access (best effort; our copies of the tokens are deleted next regardless).
+    with privileged(engine) as conn:
+        row = connections.get_connection(conn, user.id, oura.PROVIDER)
+    had_oura = bool(row and row["access_token_enc"])
+    oura_revoked = oura.revoke_at_oura(engine, user.id, http) if had_oura else None
+    if oura_revoked is False:
+        log.warning("account deletion: Oura revoke not confirmed for a user; tokens deleted locally")
+
+    # 3. Rhythm's data, then the sign-in account (its profile row cascades).
+    with privileged(engine) as conn:
+        deletion.delete_user_data(conn, user.id)
+    try:
+        supabase_admin.delete_user(http, user.id)
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                            "Your data was deleted, but the sign-in account wasn't yet. Try again.") from None
+    return AccountDeletionOut(account_deleted=True, oura_revoked=oura_revoked)
+
