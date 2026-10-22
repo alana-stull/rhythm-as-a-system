@@ -1,0 +1,63 @@
+# Render Blueprint for the Rhythm API (FastAPI). https://render.com/docs/blueprint-spec
+#
+# No secret values live here: every `sync: false` variable is entered once in the Render dashboard when the
+# Blueprint is created. Database migrations are NOT run on deploy; they're applied deliberately
+# (see docs/deployment.md).
+services:
+  - type: web
+    name: rhythm-api
+    runtime: python
+    region: virginia          # same region as the hosted Supabase project (us-east-1)
+    plan: starter             # always on: no cold starts for the app
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /health
+    autoDeploy: false         # deploy deliberately while in beta
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.14"
+      - key: ENVIRONMENT
+        value: production
+      - key: LEGACY_ENDPOINTS_ENABLED   # unauthenticated single-user API: never on a public host
+        value: "false"
+      # Off until migration 0002 (llm_usage: the spend and per-person limits) is on the hosted database
+      # and a working OpenAI key is set. The rules-only wording works without it.
+      - key: RECOMMENDATIONS_LLM_ENABLED
+        value: "false"
+      - key: APP_RETURN_URL
+        value: rhythm://connections
+
+      # ── Supabase ──────────────────────────────────────────────────────────
+      - key: SUPABASE_URL                 # https://<project-ref>.supabase.co
+        sync: false
+      - key: DATABASE_URL                 # session pooler, postgresql+psycopg://...
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY    # account deletion only (admin API)
+        sync: false
+
+      # ── Generated once for this environment; never change afterwards ─────
+      - key: TOKEN_ENCRYPTION_KEY         # Fernet key: encrypts Oura tokens at rest
+        sync: false
+      - key: OAUTH_STATE_SECRET
+        sync: false
+
+      # ── Oura ──────────────────────────────────────────────────────────────
+      - key: OURA_CLIENT_ID
+        sync: false
+      - key: OURA_CLIENT_SECRET
+        sync: false
+      - key: OURA_REDIRECT_URI            # https://<api host>/oura/callback, also registered with Oura
+        sync: false
+
+      # ── Sign in with Apple (token revocation on account deletion) ────────
+      - key: APPLE_TEAM_ID
+        sync: false
+      - key: APPLE_KEY_ID
+        sync: false
+      - key: APPLE_PRIVATE_KEY            # contents of the .p8; newlines may be written as \n
+        sync: false
+
+      # ── Optional: recommendation wording ──────────────────────────────────
+      - key: OPENAI_API_KEY
+        sync: false

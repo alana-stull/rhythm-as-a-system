@@ -12,6 +12,12 @@ _ENV_FILES = (_BACKEND_DIR.parent / ".env", _BACKEND_DIR / ".env")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILES, extra="ignore")
 
+    # "production" turns off the interactive API docs. Set by the host (render.yaml).
+    environment: str = "development"
+    # The unauthenticated single-user endpoints (backend/legacy.py). Off unless enabled for local
+    # dashboard/menu bar work; never enable on a public host.
+    legacy_endpoints_enabled: bool = False
+
     openai_api_key: str = ""
     interpretation_model: str = "gpt-4.1-mini"
 

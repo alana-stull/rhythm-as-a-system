@@ -32,7 +32,8 @@ const keychainStorage: SupportedStorage = {
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-export const supabaseConfigured = Boolean(url && anonKey);
+// Release builds accept only an https project URL.
+export const supabaseConfigured = Boolean(url && anonKey) && (__DEV__ || url!.startsWith("https://"));
 
 export const supabase = createClient(url ?? "http://not-configured.invalid", anonKey ?? "not-configured", {
   auth: { storage: keychainStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },

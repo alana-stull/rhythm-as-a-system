@@ -6,7 +6,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { appleSignInSupported } from "../src/auth/apple";
 import { useSession } from "../src/auth/SessionProvider";
 import { Button, color, fontFamily, Icon, minTouch, radius, space, Text, TextField } from "../src/design";
+import { apiConfigured } from "../src/api/http";
 import { supabaseConfigured } from "../src/lib/supabase";
+
+const configured = supabaseConfigured && apiConfigured;
 
 type Step = "welcome" | "email" | "code";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -99,14 +102,14 @@ export default function SignIn() {
             Make room for what matters.
           </Text>
           {Platform.OS === "ios" && (
-            <AppleButton onPress={busy ? () => {} : apple} />
+            <AppleButton onPress={busy || !configured ? () => {} : apple} />
           )}
           <Button label="Continue with email" variant="neutral" fullWidth style={styles.authButton}
-                  onPress={() => { setError(null); setStep("email"); }} disabled={!supabaseConfigured} />
+                  onPress={() => { setError(null); setStep("email"); }} disabled={!configured} />
           {error && <Text variant="meta" color={color.muted} style={styles.center} accessibilityLiveRegion="polite">{error}</Text>}
-          {!supabaseConfigured && (
+          {!configured && (
             <Text variant="meta" color={color.muted} style={styles.center}>
-              Sign-in isn't configured in this build (EXPO_PUBLIC_SUPABASE_URL).
+              This build isn't connected to Rhythm's servers (EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_API_URL).
             </Text>
           )}
         </View>

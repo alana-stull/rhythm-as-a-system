@@ -52,7 +52,11 @@ def db(session_factory):
 
 
 @pytest.fixture
-def client(session_factory):
+def client(session_factory, monkeypatch):
+    """The legacy single-user API (off in production; see backend/legacy.py)."""
+    from backend.config import settings
+    monkeypatch.setattr(settings, "legacy_endpoints_enabled", True)
+
     def _get_test_db():
         session = session_factory()
         try:

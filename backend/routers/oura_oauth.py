@@ -23,6 +23,7 @@ from backend.config import settings
 from backend.database import get_db
 from backend.db import scope
 from backend.integrations import oura as oura_v2
+from backend.legacy import legacy_only
 from backend.models import DailyScore, OuraReading, OuraToken
 from backend.services import oura_api
 from backend.services.scoring import (
@@ -119,7 +120,7 @@ def _upsert_daily_score(db: Session, row_date: date, reading: dict) -> None:
 
 # ── endpoints ──────────────────────────────────────────────────────────────────
 
-@router.get("/auth-url")
+@router.get("/auth-url", dependencies=[Depends(legacy_only)])
 def get_auth_url():
     if not settings.oura_client_id:
         raise HTTPException(400, "OURA_CLIENT_ID is not configured.")
@@ -140,6 +141,7 @@ async def callback(code: str | None = None, state: str | None = None, error: str
         url = await run_in_threadpool(oura_v2.handle_callback, state, code, error, engine, http,
                                       datetime.now(timezone.utc))
         return RedirectResponse(url, status_code=302)
+    legacy_only()  # the unsigned single-user flow below predates sign-in
     if not code:
         raise HTTPException(400, "Missing code.")
     if not settings.oura_client_id or not settings.oura_client_secret:
@@ -175,7 +177,7 @@ async def callback(code: str | None = None, state: str | None = None, error: str
     return RedirectResponse(f"{DASHBOARD_URL}/?oura=connected")
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(legacy_only)])
 def get_status(db: Session = Depends(get_db)):
     token = _get_token(db)
     if not token:
@@ -184,7 +186,7 @@ def get_status(db: Session = Depends(get_db)):
     return {"connected": True, "last_synced": last}
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(legacy_only)])
 async def sync(days: int = 30, db: Session = Depends(get_db)):
     token = _get_token(db)
     if not token:
@@ -255,7 +257,7 @@ async def sync(days: int = 30, db: Session = Depends(get_db)):
     }
 
 
-@router.delete("/disconnect")
+@router.delete("/disconnect", dependencies=[Depends(legacy_only)])
 def disconnect(db: Session = Depends(get_db)):
     token = _get_token(db)
     if token:
