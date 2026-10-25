@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
-import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import {
   type Area,
   createGoal,
@@ -9,112 +9,113 @@ import {
   deleteGoal,
   deleteHelp,
   deleteRhythm,
+  getInsights,
   getReflection,
+  type Goal,
+  type Help,
+  type Insights as InsightsData,
   listAreas,
   listGoals,
   listHelps,
   listRhythms,
-  type Goal,
-  type Help,
   type Reflection,
   type Rhythm,
 } from "../../src/api/endpoints";
-import { useSession } from "../../src/auth/SessionProvider";
 import {
   BottomSheet,
   Button,
-  Card,
   DarkCallout,
   Icon,
   Screen,
+  ScreenHeader,
   TagChip,
   Text,
   TextField,
   color,
   minTouch,
-  radius,
   space,
+  stateColor,
 } from "../../src/design";
+import { iso } from "../../src/lib/dates";
 import { toTag } from "../../src/lib/tags";
 
-type Kind = "goal" | "rhythm" | "help";
-const FIELDS: Record<Kind, { title: string; fields: { placeholder: string; label: string }[] }> = {
-  goal: { title: "Add a goal", fields: [{ placeholder: "What are you working toward?", label: "Goal" },
-                                        { placeholder: "A detail or deadline (optional)", label: "Detail" }] },
-  rhythm: { title: "Add a rhythm", fields: [{ placeholder: "Name the rhythm", label: "Rhythm" },
-                                            { placeholder: "How often? (optional)", label: "How often" }] },
-  help: { title: "Add what helps", fields: [{ placeholder: "What helps?", label: "What helps" }] },
-};
-const GOALS_SHOWN = 2;
+// v7 "You, option 2": a compact index. The bigger picture and "Worth noticing" only restate what Rhythm
+// already has (this month's breakdown, the weekly reflection, evidence-backed patterns); the three
+// personal sections are one-line summaries that open a sheet for editing.
 
-function RemoveButton({ label, onPress, tint = color.muted }: { label: string; onPress: () => void; tint?: string }) {
+type Sheet = "matters" | "supports" | "areas" | null;
+const MIN_FOR_PATTERN = 5; // same threshold as the Insights summary: fewer assessed days, no generalizing
+
+function summarize(names: string[], max = 2) {
+  if (!names.length) return "";
+  if (names.length <= max) return names.join(", ");
+  return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
+}
+
+function RemoveButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${label}`}
-               style={styles.remove}>
-      <Icon name="close" size={13} color={tint} />
+    <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${label}`} style={styles.remove}>
+      <Icon name="close" size={14} color={color.muted} />
     </Pressable>
   );
 }
 
-// Small text action; hitSlop keeps the touch target at 44pt without padding out the row.
-function AddAction({ label, text = "+ Add", onPress, tint = color.amberText }: {
-  label: string; text?: string; onPress: () => void; tint?: string;
-}) {
+// A sheet row: generous height, a divider, title with optional detail, remove on the right.
+function SheetRow({ title, detail, onRemove }: { title: string; detail?: string | null; onRemove: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={12} accessibilityRole="button" accessibilityLabel={label}
-               style={({ pressed }) => [styles.add, pressed && { opacity: 0.6 }]}>
-      <Text variant="metaStrong" color={tint}>{text}</Text>
-    </Pressable>
-  );
-}
-
-// Full-width list card: heading and + Add on one row, then entries or a short empty line.
-function ListCard({ title, empty, rows, addLabel, onAdd, onRemove }: {
-  title: string; empty: string; rows: { id: string; title: string; detail?: string | null }[];
-  addLabel: string; onAdd: () => void; onRemove: (id: string) => void;
-}) {
-  return (
-    <Card>
-      <View style={[styles.row, { marginBottom: 4 }]}>
-        <Text variant="section" accessibilityRole="header" style={{ flex: 1 }}>{title}</Text>
-        <AddAction label={addLabel} onPress={onAdd} />
+    <View style={styles.sheetRow}>
+      <View style={{ flex: 1 }}>
+        <Text>{title}</Text>
+        {detail ? <Text variant="meta" color={color.muted}>{detail}</Text> : null}
       </View>
-      {rows.length === 0 ? (
-        <Text variant="meta" color={color.muted}>{empty}</Text>
-      ) : rows.map((r) => (
-        <View key={r.id} style={styles.entry}>
-          <View style={{ flex: 1 }}>
-            <Text>{r.title}</Text>
-            {r.detail ? <Text variant="meta" color={color.muted}>{r.detail}</Text> : null}
-          </View>
-          <RemoveButton label={r.title} onPress={() => onRemove(r.id)} />
-        </View>
-      ))}
-    </Card>
+      <RemoveButton label={title} onPress={onRemove} />
+    </View>
+  );
+}
+
+// Inline add: one or two fields and an Add button, at the end of a sheet section.
+function AddRow({ placeholders, onAdd }: { placeholders: [string, string?]; onAdd: (a: string, b: string) => Promise<void> }) {
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!a.trim()) return;
+    setBusy(true);
+    try { await onAdd(a.trim(), b.trim()); setA(""); setB(""); } finally { setBusy(false); }
+  };
+  return (
+    <View style={{ gap: space.xs, marginTop: space.sm }}>
+      <View style={{ flexDirection: "row", gap: space.xs }}>
+        <TextField value={a} onChangeText={setA} placeholder={placeholders[0]} accessibilityLabel={placeholders[0]}
+                   returnKeyType="done" onSubmitEditing={submit} style={{ flex: 1 }} />
+        <Button label={busy ? "…" : "Add"} disabled={busy || !a.trim()} onPress={submit} />
+      </View>
+      {placeholders[1] && a.trim().length > 0 && (
+        <TextField value={b} onChangeText={setB} placeholder={placeholders[1]} accessibilityLabel={placeholders[1]} />
+      )}
+    </View>
   );
 }
 
 export default function You() {
   const router = useRouter();
-  const { profile } = useSession();
-  const { fontScale } = useWindowDimensions();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [rhythms, setRhythms] = useState<Rhythm[]>([]);
   const [helps, setHelps] = useState<Help[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
+  const [month, setMonth] = useState<InsightsData | null>(null);
   const [reflection, setReflection] = useState<Reflection | null>(null);
-  const [allGoals, setAllGoals] = useState(false);
-  const [adding, setAdding] = useState<Kind | null>(null);
-  const [values, setValues] = useState(["", ""]);
-  const [busy, setBusy] = useState(false);
+  const [sheet, setSheet] = useState<Sheet>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
+      const now = new Date();
       const [g, r, h, a] = await Promise.all([listGoals(), listRhythms(), listHelps(), listAreas()]);
       setGoals(g); setRhythms(r); setHelps(h); setAreas(a);
       setError(null);
-      // Optional: if it fails, the card just stays hidden.
+      // Optional context; if either fails, its part of the page simply stays quiet.
+      getInsights(iso(new Date(now.getFullYear(), now.getMonth(), 1)), iso(now)).then(setMonth, () => setMonth(null));
       getReflection().then(setReflection, () => setReflection(null));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load this page.");
@@ -122,136 +123,134 @@ export default function You() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const remove = (fn: () => Promise<unknown>) => async () => {
+  const change = (fn: () => Promise<unknown>) => async () => {
     try { await fn(); } catch (e) { setError(e instanceof Error ? e.message : "That didn't save."); }
     load();
   };
 
-  const openAdd = (kind: Kind) => { setValues(["", ""]); setAdding(kind); };
-  const save = async () => {
-    if (!adding || !values[0].trim()) return;
-    setBusy(true);
-    try {
-      const [a, b] = values.map((v) => v.trim());
-      if (adding === "goal") await createGoal(a, b);
-      if (adding === "rhythm") await createRhythm(a, b);
-      if (adding === "help") await createHelp(a);
-      setAdding(null);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "That didn't save.");
-    } finally {
-      setBusy(false);
-    }
-  };
+  // ── Your bigger picture: this month so far, stated plainly ──────────────────
+  const b = month?.breakdown;
+  const monthName = new Date().toLocaleDateString("en-US", { month: "long" });
+  const checkins = (month?.days ?? []).filter((d) => d.checked_in).length;
+  const most = b?.states[0];
+  const enough = !!b && b.assessed_days >= MIN_FOR_PATTERN && !!most;
+  const bigHeadline = enough
+    ? `${monthName} has most often been ${most!.state}.`
+    : b && b.assessed_days > 0 ? `Rhythm is still learning your ${monthName}.` : "Rhythm is still getting to know you.";
+  const bigDetail = enough
+    ? `${most!.days} of ${b!.days_so_far} days ${most!.state}. From ${checkins} check-in${checkins === 1 ? "" : "s"}.`
+    : b && b.assessed_days > 0 ? `From ${checkins} check-in${checkins === 1 ? "" : "s"} so far.` : "For now it only uses what you tell it.";
 
-  const first = profile?.display_name?.trim().split(/\s+/)[0] ?? "";
-  // At larger text sizes Settings drops to its icon so the name keeps its room.
-  const compactSettings = fontScale > 1.3;
-  const shownGoals = allGoals ? goals : goals.slice(0, GOALS_SHOWN);
+  // ── Worth noticing: only things Rhythm can point to ─────────────────────────
+  const noticing: { label: string; tone: string; title: string; body?: string }[] = [
+    ...(reflection?.text ? [{ label: "This week", tone: stateColor.Aligned.text, title: reflection.text }] : []),
+    ...(month?.patterns ?? []).map((p) => ({ label: "Keep an eye on", tone: stateColor.Strained.text, title: p.title, body: p.body })),
+  ];
 
-  const header = (
-    <View style={styles.header}>
-      <View style={{ flex: 1 }}>
-        {first ? <Text variant="question" accessibilityRole="header">{first}</Text> : null}
-        <Text variant="meta" color={color.muted}>Your space, shaped around you.</Text>
-      </View>
-      <Pressable onPress={() => router.push("/settings")} accessibilityRole="button" accessibilityLabel="Settings" hitSlop={6}
-                 style={({ pressed }) => [styles.settings, compactSettings && styles.settingsIcon, pressed && { opacity: 0.75 }]}>
-        <Icon name="settings" size={15} color={color.ink} />
-        {!compactSettings && <Text variant="metaStrong">Settings</Text>}
-      </Pressable>
-    </View>
+  const supportsNames = [...rhythms.map((r) => r.title), ...helps.map((h) => h.text)];
+  const index: { key: Exclude<Sheet, null>; label: string; value: string; empty: string }[] = [
+    { key: "matters", label: "What matters to me", value: summarize(goals.map((g) => g.title), 1), empty: "Add something you want to make room for" },
+    { key: "supports", label: "What supports me", value: summarize(supportsNames), empty: "Routines and things that help you" },
+    { key: "areas", label: "Areas of my life", value: summarize(areas.map((a) => a.name), 3), empty: "Add the parts of life you organize around" },
+  ];
+
+  const settings = (
+    <Pressable onPress={() => router.push("/settings")} accessibilityRole="button" accessibilityLabel="Settings" hitSlop={8}
+               style={{ minWidth: minTouch, minHeight: minTouch, alignItems: "flex-end", justifyContent: "center" }}>
+      <Icon name="settings" size={22} color={color.muted} />
+    </Pressable>
   );
 
   return (
-    <Screen gap={space.md} header={header}>
+    <Screen gap={space.lg} header={<ScreenHeader title="You" right={settings} />}>
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
 
-      {/* Goals, in Today's "What matters now" callout. */}
-      <DarkCallout eyebrow="What I'm making space for">
-        {shownGoals.map((g) => (
-          <View key={g.id} style={styles.entry}>
-            <View style={{ flex: 1 }}>
-              <Text color={color.onInk}>{g.title}</Text>
-              {g.notes ? <Text variant="meta" color={color.onInkMuted}>{g.notes}</Text> : null}
-            </View>
-            <RemoveButton label={g.title} onPress={remove(() => deleteGoal(g.id))} tint={color.onInkMuted} />
-          </View>
-        ))}
-        <View style={[styles.row, { marginTop: 6, gap: space.md }]}>
-          <AddAction label="Add a goal" text="+ Add a goal" onPress={() => openAdd("goal")} tint={color.amberLight} />
-          {goals.length > GOALS_SHOWN && (
-            <Pressable onPress={() => setAllGoals((v) => !v)} accessibilityRole="button" hitSlop={12} style={styles.add}>
-              <Text variant="metaStrong" color={color.onInkMuted}>
-                {allGoals ? "Show fewer" : `Show all ${goals.length}`}
-              </Text>
-            </Pressable>
-          )}
-        </View>
+      <DarkCallout eyebrow="Your bigger picture">
+        <Text variant="question" color={color.onInk}>{bigHeadline}</Text>
+        <Text variant="meta" color={color.onInkMuted} style={{ marginTop: 8 }}>{bigDetail}</Text>
       </DarkCallout>
 
-      <ListCard title="Everyday rhythms" empty="Small things that ground your days."
-                rows={rhythms.map((r) => ({ id: r.id, title: r.title, detail: r.cadence_note }))}
-                addLabel="Add a rhythm" onAdd={() => openAdd("rhythm")}
-                onRemove={(id) => remove(() => deleteRhythm(id))()} />
-      <ListCard title="What helps me" empty="What supports your capacity."
-                rows={helps.map((h) => ({ id: h.id, title: h.text }))}
-                addLabel="Add what helps" onAdd={() => openAdd("help")}
-                onRemove={(id) => remove(() => deleteHelp(id))()} />
-
-      <Pressable onPress={() => router.push("/settings")} accessibilityRole="button"
-                 accessibilityLabel={`Areas I want to focus on: ${areas.map((a) => a.name).join(", ") || "none yet"}`}
-                 accessibilityHint="Manage your areas in Settings">
-        <Card>
-          <View style={styles.row}>
-            <Text variant="section" style={{ flex: 1 }}>Areas I want to focus on</Text>
-            <Icon name="chevronRight" size={16} color={color.muted} />
-          </View>
-          {areas.length > 0 && (
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: space.xs }}>
-              {areas.map((a) => { const t = toTag(a); return t ? <TagChip key={a.id} tag={t} /> : null; })}
+      <View>
+        <Text variant="section" accessibilityRole="header" style={{ marginBottom: 2 }}>Worth noticing</Text>
+        {noticing.length ? noticing.map((n, i) => (
+          <View key={i} style={styles.noticeRow} accessible accessibilityLabel={`${n.label}. ${n.title} ${n.body ?? ""}`}>
+            <Text variant="eyebrow" color={n.tone} style={{ width: 96 }}>{n.label}</Text>
+            <View style={{ flex: 1 }}>
+              <Text variant="bodyStrong">{n.title}</Text>
+              {n.body ? <Text variant="meta" color={color.muted} style={{ marginTop: 2 }}>{n.body}</Text> : null}
             </View>
-          )}
-        </Card>
-      </Pressable>
-
-      {/* Pinned to the bottom of the screen, just above the tab bar, when the page is short. */}
-      {reflection?.text && (
-        <Card style={{ marginTop: "auto" }}>
-          <Text variant="eyebrow" color={color.muted} accessibilityRole="header" style={{ marginBottom: 4 }}>
-            Your week, in reflection
-          </Text>
-          <Text>{reflection.text}</Text>
-        </Card>
-      )}
-
-      <BottomSheet visible={!!adding} onClose={() => setAdding(null)} title={adding ? FIELDS[adding].title : undefined}>
-        {adding && (
-          <View style={{ gap: space.xs }}>
-            {FIELDS[adding].fields.map((f, i) => (
-              <TextField key={f.label} value={values[i]} placeholder={f.placeholder} accessibilityLabel={f.label}
-                         autoFocus={i === 0} onChangeText={(v) => setValues((xs) => xs.map((x, j) => (j === i ? v : x)))} />
-            ))}
-            <Button label={busy ? "Saving…" : "Add"} fullWidth disabled={busy || !values[0].trim()} onPress={save}
-                    style={{ marginTop: space.sm }} />
-            <Button label="Cancel" variant="secondary" fullWidth onPress={() => setAdding(null)} />
           </View>
+        )) : (
+          <Text variant="meta" color={color.muted} style={{ paddingVertical: space.xs }}>
+            Nothing to show yet. Items appear only when Rhythm can see them in your data or you record them.
+          </Text>
         )}
+      </View>
+
+      <View>
+        {index.map((row) => (
+          <Pressable key={row.key} onPress={() => setSheet(row.key)} accessibilityRole="button"
+                     accessibilityLabel={`${row.label}: ${row.value || row.empty}`} accessibilityHint="Opens to view and edit"
+                     style={({ pressed }) => [styles.indexRow, pressed && { opacity: 0.7 }]}>
+            <View style={{ flex: 1 }}>
+              <Text variant="eyebrow" color={color.muted}>{row.label}</Text>
+              <Text variant={row.value ? "section" : "body"} color={row.value ? color.ink : color.muted} numberOfLines={1}
+                    style={{ marginTop: 4 }}>{row.value || row.empty}</Text>
+            </View>
+            <Icon name="chevronRight" size={18} color={color.muted} />
+          </Pressable>
+        ))}
+      </View>
+
+      {/* What matters to me: longer-term things to make room for (goals), not tasks. */}
+      <BottomSheet visible={sheet === "matters"} onClose={() => setSheet(null)} kicker="What matters to me" title="What I'm making room for">
+        <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+          <Text variant="meta" color={color.muted} style={{ marginBottom: space.xs }}>
+            Longer-term things you want room for. They shape the suggestions you see. Nothing here is required.
+          </Text>
+          {goals.map((g) => <SheetRow key={g.id} title={g.title} detail={g.notes} onRemove={change(() => deleteGoal(g.id))} />)}
+          <AddRow placeholders={["Add something that matters", "A detail or date (optional)"]}
+                  onAdd={async (a, d) => { await change(() => createGoal(a, d))(); }} />
+        </ScrollView>
+        <Button label="Done" variant="secondary" fullWidth onPress={() => setSheet(null)} style={{ marginTop: space.md }} />
+      </BottomSheet>
+
+      {/* What supports me: routines and conditions that protect capacity. */}
+      <BottomSheet visible={sheet === "supports"} onClose={() => setSheet(null)} kicker="What supports me" title="What helps you keep room">
+        <ScrollView style={{ maxHeight: 520 }} keyboardShouldPersistTaps="handled">
+          <Text variant="eyebrow" color={color.muted} style={{ marginBottom: 2 }}>Everyday rhythms</Text>
+          {rhythms.map((r) => <SheetRow key={r.id} title={r.title} detail={r.cadence_note} onRemove={change(() => deleteRhythm(r.id))} />)}
+          <AddRow placeholders={["Add a rhythm", "How often? (optional)"]} onAdd={async (a, c) => { await change(() => createRhythm(a, c))(); }} />
+          <Text variant="eyebrow" color={color.muted} style={{ marginTop: space.lg, marginBottom: 2 }}>What helps</Text>
+          {helps.map((h) => <SheetRow key={h.id} title={h.text} onRemove={change(() => deleteHelp(h.id))} />)}
+          <AddRow placeholders={["Add what helps"]} onAdd={async (a) => { await change(() => createHelp(a))(); }} />
+        </ScrollView>
+        <Button label="Done" variant="secondary" fullWidth onPress={() => setSheet(null)} style={{ marginTop: space.md }} />
+      </BottomSheet>
+
+      {/* Areas of my life: the categories commitments, tasks and time are organized by (managed in Settings). */}
+      <BottomSheet visible={sheet === "areas"} onClose={() => setSheet(null)} kicker="Areas of my life" title="How your time is organized">
+        <Text variant="meta" color={color.muted} style={{ marginBottom: space.sm }}>
+          The parts of life your commitments, tasks and time are sorted into.
+        </Text>
+        {areas.length ? (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {areas.map((a) => { const t = toTag(a); return t ? <TagChip key={a.id} tag={t} /> : null; })}
+          </View>
+        ) : <Text color={color.muted}>No areas yet.</Text>}
+        <Button label="Manage areas in Settings" variant="secondary" fullWidth style={{ marginTop: space.lg }}
+                onPress={() => { setSheet(null); router.push("/settings"); }} />
+        <Button label="Done" variant="ghost" onPress={() => setSheet(null)} style={{ alignSelf: "center", marginTop: space.sm }} />
       </BottomSheet>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  settings: {
-    flexDirection: "row", alignItems: "center", gap: 6, minHeight: 36, paddingHorizontal: 12,
-    borderRadius: radius.pill, borderWidth: 1, borderColor: color.borderStrong,
-  },
-  settingsIcon: { minWidth: minTouch, minHeight: minTouch, paddingHorizontal: 0, justifyContent: "center" },
-  row: { flexDirection: "row", alignItems: "center", gap: space.xs },
-  entry: { flexDirection: "row", alignItems: "center", gap: 6 },
-  add: { minHeight: 24, justifyContent: "center" },
-  remove: { minWidth: 32, minHeight: 36, alignItems: "center", justifyContent: "center" },
+  noticeRow: { flexDirection: "row", gap: space.sm, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: color.divider },
+  indexRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 14, minHeight: minTouch + 20,
+              borderBottomWidth: 1, borderBottomColor: color.divider },
+  sheetRow: { flexDirection: "row", alignItems: "center", gap: space.xs, paddingVertical: 14, minHeight: minTouch + 12,
+              borderBottomWidth: 1, borderBottomColor: color.divider },
+  remove: { minWidth: minTouch, minHeight: minTouch, alignItems: "center", justifyContent: "center" },
 });

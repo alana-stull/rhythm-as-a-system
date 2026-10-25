@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.cream },
   track: { height: 4, marginHorizontal: space.gutter, marginTop: space.xs, borderRadius: 2, backgroundColor: color.hairline, overflow: "hidden" },
   fill: { height: 4, borderRadius: 2, backgroundColor: color.amber },
-  top: { paddingHorizontal: space.gutter, paddingTop: 2, gap: 2 },
+  top: { paddingHorizontal: space.lg, paddingTop: 2, gap: 2 },  // same inset as the question below
   back: { width: minTouch, height: minTouch, justifyContent: "center", marginLeft: -12, paddingLeft: 12 },
   body: { paddingHorizontal: space.lg, paddingTop: space.sm, paddingBottom: space.lg },
   footer: { paddingHorizontal: space.lg, paddingBottom: space.md },

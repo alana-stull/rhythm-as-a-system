@@ -214,6 +214,15 @@ def test_disconnect_destroys_tokens(api, person, oura_server, pg_engine):
     assert states(api, person)["oura"] == "off"
 
 
+def test_production_never_hands_out_a_localhost_redirect(api, person, monkeypatch):
+    monkeypatch.setattr(settings, "environment", "production")
+    # left at the local default: Oura would send the phone's browser to localhost
+    assert api.post("/connections/oura/authorize", headers=auth(person)).status_code == 503
+    monkeypatch.setattr(settings, "oura_redirect_uri", "https://api.example.test/oura/callback")
+    url = api.post("/connections/oura/authorize", headers=auth(person)).json()["url"]
+    assert parse_qs(urlparse(url).query)["redirect_uri"] == ["https://api.example.test/oura/callback"]
+
+
 def test_oura_unconfigured_is_503_not_a_crash(api, person, monkeypatch):
     monkeypatch.setattr(settings, "oura_client_secret", "")
     assert api.post("/connections/oura/authorize", headers=auth(person)).status_code == 503

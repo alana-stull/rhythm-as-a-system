@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from "react";
-import * as AppleAuthentication from "expo-apple-authentication";
-import Constants, { ExecutionEnvironment } from "expo-constants";
 import { Image, KeyboardAvoidingView, Platform, Pressable, Text as RNText, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { appleSignInSupported } from "../src/auth/apple";
@@ -15,25 +13,13 @@ type Step = "welcome" | "email" | "code";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESEND_AFTER_S = 60;  // matches Supabase's per-address limit on how often a code can be sent
 
-// Apple's own button in real builds (required artwork and wording). Expo Go
-// lacks that native view, so development review gets a same-size stand-in.
-const IN_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-
+// A custom Sign in with Apple button: the Apple logo, "Continue with Apple", system font, same size as the
+// other sign-in option. Chocolate to match the app (a deliberate choice; Apple's guidelines prefer black or white). Apple's native button sizes its own title
+// from the button height, which made it larger than "Continue with email"; this keeps the two matched.
 function AppleButton({ onPress }: { onPress: () => void }) {
-  if (!IN_EXPO_GO) {
-    return (
-      <AppleAuthentication.AppleAuthenticationButton
-        buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-        cornerRadius={radius.button}
-        style={styles.authButton}
-        onPress={onPress}
-      />
-    );
-  }
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="Continue with Apple"
-               style={({ pressed }) => [styles.authButton, styles.appleStandIn, pressed && { opacity: 0.8 }]}>
+               style={({ pressed }) => [styles.authButton, styles.apple, pressed && { opacity: 0.8 }]}>
       <RNText style={styles.appleGlyph} allowFontScaling={false}>{"\uF8FF"}</RNText>
       <RNText style={styles.appleLabel} maxFontSizeMultiplier={1.3}>Continue with Apple</RNText>
     </Pressable>
@@ -197,10 +183,10 @@ const styles = StyleSheet.create({
   center: { textAlign: "center" },
   actions: { paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.sm },
   authButton: { height: 52, width: "100%" },
-  appleStandIn: { backgroundColor: "#000", borderRadius: radius.button, flexDirection: "row", alignItems: "center",
+  apple: { backgroundColor: color.cacao, borderRadius: radius.button, flexDirection: "row", alignItems: "center",
                   justifyContent: "center", gap: 6 },
-  appleGlyph: { color: "#fff", fontSize: 19, marginTop: -3 },
-  appleLabel: { color: "#fff", fontSize: 17, fontWeight: "600" },
+  appleGlyph: { color: "#fff", fontSize: 17, marginTop: -2 },
+  appleLabel: { color: "#fff", fontSize: 16, fontWeight: "600" },
   top: { paddingHorizontal: space.gutter, paddingTop: space.xs },
   back: { width: minTouch, height: minTouch, justifyContent: "center", marginLeft: -12, paddingLeft: 12 },
   body: { flex: 1, paddingHorizontal: space.lg, paddingTop: space.sm, gap: space.sm },

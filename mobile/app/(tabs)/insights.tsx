@@ -27,6 +27,12 @@ import { addDays, fromIso, iso } from "../../src/lib/dates";
 
 type Range = "1w" | "1m" | "3m";
 const RANGE_DAYS: Record<Range, number> = { "1w": 7, "1m": 30, "3m": 90 };
+const RANGE_SPAN: Record<Range, string> = { "1w": "this week", "1m": "this month", "3m": "in three months" };
+// What a day's state is based on (same wording as the day-detail sheet).
+const BASIS: Record<string, string> = {
+  self_reported: "Based on your check-in.", connected: "Based on your connected data.",
+  hybrid: "Based on your check-in and connected data.",
+};
 const RANGE_TITLE: Record<Range, string> = {
   "1w": "Your week at a glance", "1m": "Your month at a glance", "3m": "Your last three months at a glance",
 };
@@ -51,7 +57,7 @@ export default function Insights() {
   const [trend, setTrend] = useState<InsightsData | null>(null);
   const [month, setMonth] = useState(() => new Date());
   const [monthData, setMonthData] = useState<InsightsData | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => iso(new Date()));
   const [detail, setDetail] = useState<DayDetail | null>(null);
   const [about, setAbout] = useState(false);
   const { width, fontScale } = useWindowDimensions();
@@ -85,11 +91,19 @@ export default function Insights() {
                   reading: null, calendar: null, checkins: [] });
     }
   };
+  const closeDetail = () => setDetail(null);  // the day stays selected on the calendar
 
-  const b = trend?.breakdown;
-  const top = b?.states.slice(0, 2) ?? [];
-  const other = (b?.states.slice(2) ?? []).reduce((n, s) => n + s.days, 0);
   const monthByDate = Object.fromEntries((monthData?.days ?? []).map((d) => [d.date, d]));
+  function monthByDateOf(d: string) { return monthByDate[d]; }
+  const b = trend?.breakdown;
+  const most = b?.states[0];
+  const restLine = b ? [
+    ...b.states.slice(1).map((s) => `${s.state} ${s.days}`),
+    b.uncertain_days ? `could go either way ${b.uncertain_days}` : null,
+    `Oura only ${b.reading_only_days}`, `no data ${b.no_data_days}`,
+  ].filter(Boolean).join(", ") : "";
+  const sel = selected ? monthByDateOf(selected) : undefined;
+  const selState = display(sel?.rhythm);
   const isCurrentMonth = month.getFullYear() === new Date().getFullYear() && month.getMonth() === new Date().getMonth();
 
   return (
@@ -103,29 +117,35 @@ export default function Insights() {
     >
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
 
-      <View>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} accessibilityRole="button"
-                     accessibilityLabel="Previous month" style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center" }}>
-            <Icon name="chevronLeft" size={18} color={color.muted} />
-          </Pressable>
-          <Text variant="section" accessibilityRole="header">{month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</Text>
-          <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} accessibilityRole="button"
-                     accessibilityLabel="Next month" disabled={isCurrentMonth}
-                     style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "flex-end", opacity: isCurrentMonth ? 0.3 : 1 }}>
-            <Icon name="chevronRight" size={18} color={color.muted} />
-          </Pressable>
+      <Card style={{ paddingHorizontal: space.sm, paddingTop: space.xs, paddingBottom: space.md }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
+          <Text variant="section" accessibilityRole="header" style={{ fontSize: 19, lineHeight: 24 }}>
+            {month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </Text>
+          <View style={{ flexDirection: "row" }}>
+            <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} accessibilityRole="button"
+                       accessibilityLabel="Previous month" style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "center" }}>
+              <Icon name="chevronLeft" size={18} color={color.muted} />
+            </Pressable>
+            <Pressable onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} accessibilityRole="button"
+                       accessibilityLabel="Next month" disabled={isCurrentMonth}
+                       style={{ minWidth: minTouch, minHeight: minTouch, justifyContent: "center", alignItems: "center", opacity: isCurrentMonth ? 0.3 : 1 }}>
+              <Icon name="chevronRight" size={18} color={color.muted} />
+            </Pressable>
+          </View>
         </View>
         <MonthGrid
           month={month}
           today={today}
           selected={selected}
-          onSelect={(d) => { if (d <= today) open(d); }}
+          dimFuture
+          onSelect={(d) => { if (d <= today) setSelected(d); }}
           marker={(d) => {
             const day = monthByDate[d];
             const s = display(day?.rhythm);
-            if (s) return <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: stateColor[s].base }} />;
-            if (day?.reading) return <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: color.muted }} />;
+            const onCacao = d === selected;
+            if (s) return <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: onCacao ? color.onInk : stateColor[s].base }} />;
+            if (day?.reading) return <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: onCacao ? color.onInk : color.muted }} />;
             return null;
           }}
           label={(d) => {
@@ -135,28 +155,61 @@ export default function Insights() {
                     day?.reading?.readiness != null ? `Oura readiness ${Math.round(day.reading.readiness)}` : "no Oura reading"].join(", ");
           }}
         />
-        <View style={{ flexDirection: "row", gap: space.md, marginTop: space.xs }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color.ink }} />
-            <Text variant="meta" color={color.muted}>Rhythm state</Text>
-          </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: space.md, rowGap: 6, marginTop: space.sm, paddingHorizontal: 4 }}
+              accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {(["Aligned", "Balanced", "Strained", "Overloaded"] as const).map((st) => (
+            <View key={st} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: stateColor[st].base }} />
+              <Text variant="meta" color={color.muted}>{st}</Text>
+            </View>
+          ))}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: color.muted }} />
             <Text variant="meta" color={color.muted}>Oura reading only</Text>
           </View>
         </View>
-      </View>
+      </Card>
+
+      {selected && (
+        <Card>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.xs }}>
+            <Text variant="eyebrow" color={color.muted}>
+              {fromIso(selected).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+            </Text>
+            {selState && <StateBadge state={selState} size="sm" />}
+          </View>
+          <Text style={{ marginTop: 10 }}>
+            {[selState ? (BASIS[sel?.rhythm?.pathway ?? ""] ?? "Assessed from that day's evidence.")
+                       : sel?.rhythm ? "Not enough evidence for a Rhythm state that day." : "No Rhythm state for this day.",
+              sel?.reading?.readiness != null ? `Oura reported readiness of ${Math.round(sel.reading.readiness)}.`
+                : sel?.reading ? "Oura synced that day." : null].filter(Boolean).join(" ")}
+          </Text>
+          {(sel?.rhythm || sel?.reading || sel?.checked_in) && (
+            <Button label="Day details ›" variant="ghost" onPress={() => open(selected)} style={{ marginTop: space.sm }} />
+          )}
+        </Card>
+      )}
 
       <View style={{ gap: space.sm }}>
-        {/* Heading and range on one row; at larger text sizes or on narrow phones the control drops below. */}
-        <View style={[{ flexDirection: "row", alignItems: "center", gap: space.sm },
-                      (fontScale > 1.3 || width < 360) && { flexDirection: "column", alignItems: "flex-start" }]}>
-          <Text variant="section" accessibilityRole="header" style={fontScale > 1.3 || width < 360 ? undefined : { flex: 1 }}>
-            {RANGE_TITLE[range]}
-          </Text>
-          <SegmentedControl value={range} onChange={setRange}
-                            options={[{ key: "1w", label: "1W" }, { key: "1m", label: "1M" }, { key: "3m", label: "3M" }]} />
-        </View>
+        <Text variant="section" accessibilityRole="header">{RANGE_TITLE[range]}</Text>
+        <SegmentedControl stretch value={range} onChange={setRange}
+                          options={[{ key: "1w", label: "1W" }, { key: "1m", label: "1M" }, { key: "3m", label: "3M" }]} />
+        {b && (
+          <View style={{ paddingHorizontal: 4, gap: 4 }} accessible
+                accessibilityLabel={most ? `Most common ${RANGE_SPAN[range]}: ${most.state}, ${most.days} of ${b.days_so_far} days. ${restLine}.` : undefined}>
+            <Text variant="eyebrow" color={color.muted}>Most common {RANGE_SPAN[range]}</Text>
+            {most ? (
+              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <Text variant="title" color={stateColor[most.state as CapacityDisplay].text}>{most.state}</Text>
+                <Text color={color.muted}>{most.days} of {b.days_so_far} days</Text>
+              </View>
+            ) : (
+              <Text variant="bodyStrong">No Rhythm states yet in this range</Text>
+            )}
+            <Text variant="meta" color={color.muted}>{restLine}.</Text>
+            <Text variant="meta" color={color.muted} style={{ marginTop: 4 }}>{b.summary}</Text>
+          </View>
+        )}
         <Card>
           <Text variant="section" accessibilityRole="header">Oura readiness</Text>
           <Text variant="meta" color={color.muted} style={{ marginBottom: space.sm }}>
@@ -164,50 +217,6 @@ export default function Insights() {
           </Text>
           {trend ? <TrendChart days={trend.days} onOpenDay={open} /> : <Text variant="meta" color={color.muted}>Loading…</Text>}
         </Card>
-        {b && (
-          <Card>
-            <Text variant="eyebrow" color={color.muted} style={{ marginBottom: space.sm }}>Rhythm states</Text>
-            {top.map((s) => (
-              <View key={s.state} style={{ marginBottom: space.sm }} accessible accessibilityLabel={`${s.state}, ${s.days} days`}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: stateColor[s.state as CapacityDisplay].base }} />
-                  <Text variant="bodyStrong" style={{ flex: 1 }}>{s.state}</Text>
-                  <Text color={color.muted}>{s.days} day{s.days === 1 ? "" : "s"}</Text>
-                </View>
-                <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
-                  <View style={{ height: 8, borderRadius: 4, width: `${(s.days / b.assessed_days) * 100}%`,
-                                 backgroundColor: stateColor[s.state as CapacityDisplay].base }} />
-                </View>
-              </View>
-            ))}
-            {other > 0 && (
-              <View style={{ marginBottom: space.sm }} accessible accessibilityLabel={`Other states, ${other} days`}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color.muted }} />
-                  <Text variant="bodyStrong" style={{ flex: 1 }}>Other states</Text>
-                  <Text color={color.muted}>{other} day{other === 1 ? "" : "s"}</Text>
-                </View>
-                <View style={{ height: 8, borderRadius: 4, backgroundColor: color.fillMuted }}>
-                  <View style={{ height: 8, borderRadius: 4, width: `${(other / b.assessed_days) * 100}%`, backgroundColor: color.muted }} />
-                </View>
-              </View>
-            )}
-            <View style={{ borderTopWidth: 1, borderTopColor: color.hairline, paddingTop: space.sm, gap: 4 }}>
-              {([
-                ["Assessed by Rhythm", b.assessed_days],
-                ["Could go either way", b.uncertain_days],
-                ["Oura readings only", b.reading_only_days],
-                ["No data", b.no_data_days],
-              ] as [string, number][]).filter(([, v], i) => v > 0 || i === 0).map(([k, v]) => (
-                <View key={k} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text variant="meta" color={color.muted}>{k}</Text>
-                  <Text variant="metaStrong">{v} of {b.days_so_far} days</Text>
-                </View>
-              ))}
-              <Text variant="meta" color={color.muted} style={{ marginTop: space.xs }}>{b.summary}</Text>
-            </View>
-          </Card>
-        )}
       </View>
 
       {(trend?.patterns.length ?? 0) > 0 && (
@@ -257,7 +266,7 @@ export default function Insights() {
         </View>
       </BottomSheet>
 
-      <BottomSheet visible={!!detail} onClose={() => { setDetail(null); setSelected(null); }}
+      <BottomSheet visible={!!detail} onClose={closeDetail}
                    kicker={detail ? fromIso(detail.date).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }) : undefined}>
         {detail && (
           <View style={{ gap: space.sm }}>
@@ -309,7 +318,7 @@ export default function Insights() {
                 <Text variant="meta">{d}</Text>
               </View>
             ))}
-            <Button label="Close" variant="secondary" fullWidth onPress={() => { setDetail(null); setSelected(null); }} />
+            <Button label="Close" variant="secondary" fullWidth onPress={closeDetail} />
           </View>
         )}
       </BottomSheet>

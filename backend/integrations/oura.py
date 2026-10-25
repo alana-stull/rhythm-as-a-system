@@ -62,6 +62,10 @@ _DEAD_REFRESH = {400, 401, 403}
 def _require_config() -> None:
     if not (settings.oura_client_id and settings.oura_client_secret):
         raise OuraNotConfigured("OURA_CLIENT_ID / OURA_CLIENT_SECRET are not set")
+    # In production the redirect must be this server's public https callback. The local default
+    # (http://localhost:8000/oura/callback) would send the person's browser to their own phone.
+    if settings.environment == "production" and not redirect_uri().startswith("https://"):
+        raise OuraNotConfigured("OURA_REDIRECT_URI must be this server's https /oura/callback in production")
     secrets._fernet()  # raises NotConfigured without a valid key
     secrets._key()
 

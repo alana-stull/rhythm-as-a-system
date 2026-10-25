@@ -26,11 +26,12 @@ export function Card({
   return <View style={[styles.card, padding === "list" ? styles.cardList : styles.cardMd, style]}>{children}</View>;
 }
 
-// ── Dark callout ("What matters now", "Today, roughly") ──────────────────────
-export function DarkCallout({ eyebrow, children }: { eyebrow: string; children: React.ReactNode }) {
+// ── Feature callout ("What matters now", "Your bigger picture") ──────────────
+// v7: chocolate (cacao), not black. Text on it uses onInk / onInkMuted.
+export function DarkCallout({ eyebrow, children, style }: { eyebrow: string; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={styles.dark}>
-      <Eyebrow tone="onInk" style={{ marginBottom: 6 }}>{eyebrow}</Eyebrow>
+    <View style={[styles.dark, style]}>
+      <Eyebrow tone="onInk" style={{ marginBottom: 8 }}>{eyebrow}</Eyebrow>
       {children}
     </View>
   );
@@ -103,7 +104,7 @@ export function Button({
     styles.button,
     isSm && styles.buttonSm,
     fullWidth && { alignSelf: "stretch" },
-    variant === "primary" && { backgroundColor: disabled ? c.disabled : c.ink },
+    variant === "primary" && { backgroundColor: disabled ? c.cacaoDisabled : c.cacao },
     variant === "secondary" && { borderWidth: 1, borderColor: c.borderStrong },
     variant === "neutral" && { backgroundColor: c.fillMuted },
     variant === "ghost" && styles.buttonGhost,
@@ -118,7 +119,11 @@ export function Button({
       accessibilityState={{ disabled }}
       accessibilityHint={accessibilityHint}
       hitSlop={variant === "ghost" ? 10 : undefined}
-      style={({ pressed }) => [...base, pressed && !disabled && { opacity: 0.75 }, style]}
+      style={({ pressed }) => [
+        ...base,
+        pressed && !disabled && (variant === "primary" ? { backgroundColor: c.cacaoPress } : { opacity: 0.75 }),
+        style,
+      ]}
     >
       <Text variant={isSm ? "metaStrong" : "button"} color={textColor} style={{ textAlign: "center" }}>
         {label}
@@ -150,10 +155,10 @@ const styles = StyleSheet.create({
   cardMd: { paddingVertical: 14, paddingHorizontal: space.md },
   cardList: { paddingVertical: 2, paddingHorizontal: space.xxs },
   dark: {
-    backgroundColor: c.ink,
+    backgroundColor: c.cacao,
     borderRadius: radius.card,
-    paddingVertical: 14,
-    paddingHorizontal: space.md,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
   },
   sectionHeader: {
     flexDirection: "row",

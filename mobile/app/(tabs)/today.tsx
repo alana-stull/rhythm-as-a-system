@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { clearPriority, createTask, makePriority, setCompleted } from "../../src/api/endpoints";
 import type { Today as TodayData } from "../../src/api/types";
 import {
@@ -12,8 +12,10 @@ import {
   DarkCallout,
   Eyebrow,
   Icon,
+  minTouch,
   PastelKey,
   pastel,
+  radius,
   Screen,
   ScreenHeader,
   SectionHeader,
@@ -44,19 +46,27 @@ function clock(iso: string) {
   return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// What the read is based on (same wording as Insights' day detail).
+const BASIS: Record<TodayData["capacity"]["pathway"], string | null> = {
+  none: null,
+  self_reported: "Based on your check-in.",
+  connected: "Based on your connected data.",
+  hybrid: "Based on your check-in and connected data.",
+};
+
 function badgeState(c: TodayData["capacity"]): CapacityDisplay {
   if (c.status === "assessed" && c.state) return c.state;
   return c.status === "uncertain" ? "Uncertain" : "Insufficient";
 }
 
-// Highlighted words (e.g. "4 days") in light amber, as on the board.
+// v7: the recommendation reads as a serif headline on cacao; highlighted words (e.g. "11–1") in caramel.
 function Highlighted({ text, highlight }: { text: string; highlight: string | null }) {
   const at = highlight ? text.indexOf(highlight) : -1;
-  if (!highlight || at < 0) return <Text color={color.onInk}>{text}</Text>;
+  if (!highlight || at < 0) return <Text variant="question" color={color.onInk}>{text}</Text>;
   return (
-    <Text color={color.onInk}>
+    <Text variant="question" color={color.onInk}>
       {text.slice(0, at)}
-      <Text variant="bodyStrong" color={color.amberLight}>{highlight}</Text>
+      <Text variant="question" color={color.caramel}>{highlight}</Text>
       {text.slice(at + highlight.length)}
     </Text>
   );
@@ -138,25 +148,35 @@ export default function Today() {
           </View>
           {/* Why capacity looks this way. "What matters now" is what to do about it. */}
           {cap.context && <Text style={{ marginTop: 10 }}>{cap.context}</Text>}
+          {BASIS[cap.pathway] && <Text variant="meta" color={color.muted} style={{ marginTop: 8 }}>{BASIS[cap.pathway]}</Text>}
         </Card>
       )}
 
       {wmn && (
-        wmn.kind === "check_in" ? (
-          <Pressable onPress={() => setSheet(true)} accessibilityRole="button" accessibilityHint="Opens a quick check-in">
-            <DarkCallout eyebrow="What matters now"><Highlighted text={wmn.text} highlight={wmn.highlight} /></DarkCallout>
-          </Pressable>
-        ) : (
-          <DarkCallout eyebrow="What matters now"><Highlighted text={wmn.text} highlight={wmn.highlight} /></DarkCallout>
-        )
+        <DarkCallout eyebrow="What matters now">
+          <Highlighted text={wmn.text} highlight={wmn.highlight} />
+          {wmn.kind === "check_in" && (
+            <Pressable onPress={() => setSheet(true)} accessibilityRole="button" accessibilityHint="Opens a quick check-in"
+                       style={({ pressed }) => [styles.onCacaoAction, pressed && { opacity: 0.85 }]}>
+              <Text variant="button" color={color.cacao}>Check in</Text>
+            </Pressable>
+          )}
+        </DarkCallout>
       )}
 
       <View>
-        <SectionHeader title="Priorities" />
-        <Card padding="list">
+        <View style={styles.sectionRow}>
+          <Text variant="section" accessibilityRole="header">Priorities</Text>
+          {priorities.length > 0 && (
+            <Text variant="meta" color={color.muted}>
+              {priorities.filter((p) => p.completed_at).length} of {priorities.length} done
+            </Text>
+          )}
+        </View>
+        <View>
           {priorities.map((p) => (
+            <View key={p.id} style={styles.listRow}>
             <ChecklistRow
-              key={p.id}
               label={p.title}
               checked={!!p.completed_at}
               onToggle={() => act(
@@ -167,9 +187,10 @@ export default function Today() {
                 (d) => ({ ...d, priorities: d.priorities.filter((x) => x.id !== p.id) }),
                 () => clearPriority(p.id))}
             />
+            </View>
           ))}
           {canAdd && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: space.xs }}>
+            <View style={[styles.listRow, { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: space.xs }]}>
               <Icon name="plus" size={16} color={color.amber} strokeWidth={2.3} />
               <TextField
                 inline
@@ -182,41 +203,49 @@ export default function Today() {
               />
             </View>
           )}
-        </Card>
+        </View>
         {actionError && <Text variant="meta" color="#6B2F2A" style={{ marginTop: 6 }}>{actionError}</Text>}
       </View>
 
       <View>
-        <SectionHeader title="Today's schedule" linkLabel="View full day →" onLinkPress={() => router.navigate("/plan")} />
-        <Card padding="list">
-          {upcoming.length === 0 ? (
-            <Text variant="meta" color={color.muted} style={{ paddingVertical: 10, paddingHorizontal: space.sm }}>
-              {data.schedule.calendar_connected ? "Nothing else on the calendar today." : "Connect your calendar in Settings to see what's next."}
-            </Text>
-          ) : (
-            upcoming.map((e) => {
-              const title = e.title ?? titles[e.external_id ?? ""] ?? "Busy";
-              const area = e.area_id ? areas[e.area_id] : undefined;
-              const tag = area?.color_family && area.color_family in pastel
-                ? { id: area.id, name: area.name, color: area.color_family as PastelKey } : undefined;
-              return (
-                <View
-                  key={e.id}
-                  accessible
-                  accessibilityLabel={`${clock(e.starts_at)}, ${title}${tag ? `, ${tag.name}` : ""}`}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: space.sm }}
-                >
-                  <Text variant="meta" color={color.muted} style={{ width: 40 }}>{clock(e.starts_at)}</Text>
-                  <Text variant="bodyStrong" numberOfLines={1} style={{ flex: 1 }}>{title}</Text>
-                  {tag && <TagChip tag={tag} size="sm" />}
+        <SectionHeader title="Today's schedule" linkLabel="Full day ›" onLinkPress={() => router.navigate("/plan")} />
+        {upcoming.length === 0 ? (
+          <Text variant="meta" color={color.muted}>
+            {data.schedule.calendar_connected ? "Nothing else on the calendar today." : "Connect your calendar in Settings to see what's next."}
+          </Text>
+        ) : (
+          upcoming.map((e) => {
+            const title = e.title ?? titles[e.external_id ?? ""] ?? "Busy";
+            const area = e.area_id ? areas[e.area_id] : undefined;
+            const tag = area?.color_family && area.color_family in pastel
+              ? { id: area.id, name: area.name, color: area.color_family as PastelKey } : undefined;
+            const meta = [tag?.name, e.kind === "rhythm" ? "Rhythm" : null, `until ${clock(e.ends_at)}`].filter(Boolean).join(", ");
+            return (
+              <View key={e.id} accessible accessibilityLabel={`${clock(e.starts_at)}, ${title}, ${meta}`} style={styles.timelineRow}>
+                <Text variant="meta" color={color.muted} style={{ width: 44, paddingTop: 2 }}>{clock(e.starts_at)}</Text>
+                <View style={[styles.timelineBar, tag && { backgroundColor: pastel[tag.color].text, opacity: 0.45 }]} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyStrong" numberOfLines={1}>{title}</Text>
+                  <Text variant="meta" color={color.muted} numberOfLines={1}>{meta}</Text>
                 </View>
-              );
-            })
-          )}
-        </Card>
+              </View>
+            );
+          })
+        )}
       </View>
 
       <CheckinSheet visible={sheet} onClose={() => setSheet(false)} onSaved={() => reload()} />
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  sectionRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 },
+  listRow: { borderBottomWidth: 1, borderBottomColor: color.divider },
+  onCacaoAction: {
+    alignSelf: "flex-start", marginTop: space.md, minHeight: minTouch + 4, paddingHorizontal: space.gutter,
+    borderRadius: radius.button, backgroundColor: color.caramel, alignItems: "center", justifyContent: "center",
+  },
+  timelineRow: { flexDirection: "row", gap: 12, paddingVertical: 10 },
+  timelineBar: { width: 3, borderRadius: 2, backgroundColor: color.hairline },
+});

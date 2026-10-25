@@ -9,13 +9,16 @@ const iso = (d: Date) =>
 
 // A month as explicit seven-day rows (Sunday first). Rows of flex cells, not
 // percentage widths, so rounding can never wrap Saturday onto the next line.
-export function MonthGrid({ month, selected, today, marker, onSelect, label }: {
+// v7: plain numbers (no boxes); the selected day is a cacao square, today has an amber ring, and days
+// after today can be dimmed (Insights: nothing has happened yet).
+export function MonthGrid({ month, selected, today, marker, onSelect, label, dimFuture = false }: {
   month: Date;                                   // any date in the month
   selected?: string | null;                      // ISO date
   today: string;                                 // ISO date
   marker?: (date: string) => React.ReactNode;    // dot / ring under the number
   onSelect?: (date: string) => void;
   label?: (date: string) => string;              // VoiceOver description of the day's data
+  dimFuture?: boolean;
 }) {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const count = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -39,6 +42,7 @@ export function MonthGrid({ month, selected, today, marker, onSelect, label }: {
             if (!d) return <View key={i} style={styles.cell} />;
             const key = iso(d);
             const isSel = key === selected, isToday = key === today;
+            const future = dimFuture && key > today;
             return (
               <View key={i} style={styles.cell}>
                 <Pressable
@@ -46,9 +50,10 @@ export function MonthGrid({ month, selected, today, marker, onSelect, label }: {
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSel }}
                   accessibilityLabel={`${d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}${label ? `, ${label(key)}` : ""}`}
-                  style={[styles.day, isSel && styles.daySelected, isToday && styles.dayToday]}
+                  style={[styles.day, isToday && !isSel && styles.dayToday, isSel && styles.daySelected]}
                 >
-                  <Text variant="metaStrong" color={isToday ? c.amberText : c.ink} maxFontSizeMultiplier={1.2}>{d.getDate()}</Text>
+                  <Text variant="body" maxFontSizeMultiplier={1.2}
+                        color={isSel ? c.onInk : future ? c.disabled : isToday ? c.amberText : c.ink}>{d.getDate()}</Text>
                   <View style={styles.marker}>{marker?.(key)}</View>
                 </Pressable>
               </View>
@@ -65,10 +70,10 @@ const styles = StyleSheet.create({
   weekday: { flex: 1, textAlign: "center", marginBottom: 6 },
   cell: { flex: 1, padding: 2 },
   day: {
-    height: 46, borderRadius: 9, alignItems: "center", justifyContent: "center", gap: 3,
-    backgroundColor: c.surface, borderWidth: 1, borderColor: "rgba(27,27,29,0.07)",
+    height: 46, borderRadius: 11, alignItems: "center", justifyContent: "center", gap: 3,
+    borderWidth: 1.5, borderColor: "transparent",
   },
-  daySelected: { backgroundColor: c.amberSoft, borderColor: "rgba(184,119,42,0.4)" },
-  dayToday: { borderWidth: 1.5, borderColor: c.amber },
+  daySelected: { backgroundColor: c.cacao, borderColor: c.cacao },
+  dayToday: { borderColor: c.amber },
   marker: { height: 7, alignItems: "center", justifyContent: "center" },
 });

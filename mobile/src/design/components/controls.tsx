@@ -5,14 +5,14 @@ import { color as c, elevation, minTouch, PastelKey, pastel, pastelKeys, radius,
 import { Tag, TagChip } from "./status";
 import { Text } from "./Text";
 
-// ── Check (round for tasks/priorities, square for multi-pick lists) ─────────
-export function Check({ checked, shape = "circle" }: { checked: boolean; shape?: "circle" | "square" }) {
+// ── Check: v7 small square box everywhere (priorities, tasks, planned work) ──
+export function Check({ checked, shape = "square" }: { checked: boolean; shape?: "circle" | "square" }) {
   return (
     <View
       style={[
         styles.check,
-        shape === "square" && { borderRadius: 5 },
-        { borderColor: checked ? c.amber : c.borderStrong, backgroundColor: checked ? c.amber : "transparent" },
+        shape === "circle" && { borderRadius: 10 },
+        { borderColor: checked ? c.cacao : c.borderStrong, backgroundColor: checked ? c.cacao : c.surface },
       ]}
     >
       {checked && <Icon name="check" size={11} color={c.onInk} strokeWidth={3} />}
@@ -159,13 +159,16 @@ export function SegmentedControl<K extends string>({
   options,
   value,
   onChange,
+  stretch = false,
 }: {
   options: { key: K; label: string }[];
   value: K;
   onChange: (k: K) => void;
+  // v7: full-width with equal segments (Plan's Day/Week/Month, Insights' ranges, Tasks' Focus/By area).
+  stretch?: boolean;
 }) {
   return (
-    <View style={styles.segTrack} accessibilityRole="tablist">
+    <View style={[styles.segTrack, stretch && styles.segTrackStretch]} accessibilityRole="tablist">
       {options.map((o) => {
         const active = o.key === value;
         return (
@@ -174,9 +177,11 @@ export function SegmentedControl<K extends string>({
             onPress={() => onChange(o.key)}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
-            style={[styles.seg, active && styles.segActive]}
+            style={[styles.seg, stretch && styles.segStretch, active && styles.segActive]}
           >
-            <Text variant="metaStrong" color={active ? c.ink : c.muted}>{o.label}</Text>
+            <Text variant={stretch ? (active ? "bodyStrong" : "body") : "metaStrong"} color={active ? c.ink : c.muted}>
+              {o.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -243,7 +248,7 @@ const styles = StyleSheet.create({
   check: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: 5,
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
@@ -278,11 +283,13 @@ const styles = StyleSheet.create({
   scaleEnds: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   segTrack: { flexDirection: "row", backgroundColor: c.segmentTrack, borderRadius: 9, padding: 2, alignSelf: "flex-start" },
   seg: { minHeight: 32, paddingHorizontal: 12, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  segActive: { backgroundColor: c.white },
+  segActive: { backgroundColor: c.white, shadowColor: "#1B1B1D", shadowOpacity: 0.06, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
+  segTrackStretch: { alignSelf: "stretch", borderRadius: 12, padding: 3 },
+  segStretch: { flex: 1, minHeight: 40, borderRadius: 9 },
   pastels: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   swatch: { width: 36, height: 36, borderRadius: 9 },
   swatchIdle: { borderWidth: 1, borderColor: "rgba(27,27,29,0.1)" },
-  swatchActive: { borderWidth: 2, borderColor: c.ink },
+  swatchActive: { borderWidth: 2, borderColor: c.cacao },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 12, minHeight: minTouch },
   fab: {
     position: "absolute",
@@ -291,7 +298,7 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: c.ink,
+    backgroundColor: c.cacao,
     alignItems: "center",
     justifyContent: "center",
     ...elevation.fab,

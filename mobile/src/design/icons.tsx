@@ -7,7 +7,7 @@ export type IconName =
   | "today" | "plan" | "tasks" | "insights" | "you"
   | "plus" | "close" | "check" | "star"
   | "chevronDown" | "chevronLeft" | "chevronRight"
-  | "settings" | "heart" | "sunrise" | "info";
+  | "settings" | "heart" | "sunrise" | "info" | "pencil";
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -34,7 +34,7 @@ export function Icon({ name, size = 20, color = c.muted, strokeWidth = 2, filled
         </>
       )}
       {name === "tasks" && <Path d="m3 6 2 2 4-4M11 6h10M3 15l2 2 4-4M11 15h10" {...common} />}
-      {name === "insights" && <Path d="M5 21V16M10 21V11M15 21V6M20 21V3" {...common} />}
+      {name === "insights" && <Path d="M22 7l-8.5 8.5-5-5L2 17M16 7h6v6" {...common} /> /* trending up */}
       {name === "you" && (
         <>
           <Circle cx={12} cy={8} r={4} {...common} />
@@ -58,6 +58,9 @@ export function Icon({ name, size = 20, color = c.muted, strokeWidth = 2, filled
       )}
       {name === "sunrise" && (
         <Path d="M12 2v8M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0" {...common} />
+      )}
+      {name === "pencil" && (
+        <Path d="M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5zM15 5l4 4" {...common} />
       )}
       {name === "info" && (
         <>

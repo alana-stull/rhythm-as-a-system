@@ -1,20 +1,31 @@
-// Rhythm design tokens. Source of truth: "Rhythm product mockups" HTML
-// (Foundations board + iOS boards). Values are copied from the mockups; the
+// Rhythm design tokens. Source of truth: "Rhythm product mockups" HTML (v7 iOS
+// boards, mobile/assets; earlier Foundations board for type and tags). Values are copied from the mockups; the
 // only deliberate departures are contrast fixes, marked "a11y" below.
 
 // ── Color ─────────────────────────────────────────────────────────────────────
 export const color = {
-  cream: "#FAF8F4",       // app background
-  surface: "#FBFAF7",     // cards, inputs
-  white: "#FFFFFF",       // option rows, selected segment, timeline blocks
-  ink: "#1B1B1D",         // primary text, primary buttons, dark callout
+  cream: "#FAF8F4",       // app background (v7 "ivory")
+  surface: "#FDFCFA",     // cards, inputs (v7 "card")
+  white: "#FFFFFF",       // option rows, selected segment, synced events
+  ink: "#1B1B1D",         // text. Not a fill: dark surfaces are cacao.
+
+  // v7: chocolate for feature cards, primary buttons and selected controls.
+  cacao: "#30251F",
+  cacaoPress: "#241A15",
+  cacaoDisabled: "rgba(48,37,31,0.38)",
+  caramel: "#E4B780",     // the one action color on cacao ("Add to my plan")
+  onCacao: "#FAF8F4",
+  onCacaoMuted: "rgba(250,248,244,0.72)",
+  tint: "#F3F0E8",        // quiet inner surfaces (segment track, chart wells)
+  planned: "#F7EFE3",     // Rhythm-planned work in Plan (synced events stay white)
+  plannedBorder: "rgba(184,119,42,0.24)",
   muted: "#6B6259",       // secondary text, inactive icons
   amber: "#B8772A",       // accent fills, icons, active tab, checked controls
   amberText: "#9C6524",   // a11y: amber for text (#B8772A is 3.5:1 on cream)
   amberLight: "#E8C99A",  // highlights on ink, open-window outlines
   amberSoft: "rgba(184,119,42,0.10)",
-  onInk: "#FAF8F4",
-  onInkMuted: "rgba(250,248,244,0.62)", // a11y: mockup uses 0.5 (4.97:1); 0.62 gives 6.9:1
+  onInk: "#FAF8F4",       // text on cacao (kept name: "on dark")
+  onInkMuted: "rgba(250,248,244,0.72)", // v7 value; 0.72 on cacao is well above 4.5:1
 
   // Brand palette (Foundations). Reserved for brand moments, never tags or states.
   maroon: "#5C2331",
@@ -30,6 +41,7 @@ export const color = {
   scrim: "rgba(27,27,29,0.32)",
   fillMuted: "#F0ECE3",     // light neutral fill, distinct from cream (secondary actions)
   segmentTrack: "#F0ECE3",
+  divider: "rgba(27,27,29,0.08)",   // between list rows (v7 lists sit on the page, not in cards)
   sheetHandle: "rgba(27,27,29,0.18)",
 
   conflict: "rgba(168,82,75,0.06)",
