@@ -59,14 +59,14 @@ function badgeState(c: TodayData["capacity"]): CapacityDisplay {
   return c.status === "uncertain" ? "Uncertain" : "Insufficient";
 }
 
-// v7: the recommendation reads as a serif headline on cacao; highlighted words (e.g. "11–1") in caramel.
+// The recommendation reads as a serif line on cacao; highlighted words (e.g. "11–1") in caramel.
 function Highlighted({ text, highlight }: { text: string; highlight: string | null }) {
   const at = highlight ? text.indexOf(highlight) : -1;
-  if (!highlight || at < 0) return <Text variant="question" color={color.onInk}>{text}</Text>;
+  if (!highlight || at < 0) return <Text variant="section" color={color.onInk}>{text}</Text>;
   return (
-    <Text variant="question" color={color.onInk}>
+    <Text variant="section" color={color.onInk}>
       {text.slice(0, at)}
-      <Text variant="question" color={color.caramel}>{highlight}</Text>
+      <Text variant="section" color={color.caramel}>{highlight}</Text>
       {text.slice(at + highlight.length)}
     </Text>
   );

@@ -166,7 +166,7 @@ export default function You() {
       {error && <Text variant="meta" color="#6B2F2A">{error}</Text>}
 
       <DarkCallout eyebrow="Your bigger picture">
-        <Text variant="question" color={color.onInk}>{bigHeadline}</Text>
+        <Text variant="section" color={color.onInk}>{bigHeadline}</Text>
         <Text variant="meta" color={color.onInkMuted} style={{ marginTop: 8 }}>{bigDetail}</Text>
       </DarkCallout>
 
